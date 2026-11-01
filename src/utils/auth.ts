@@ -101,3 +101,34 @@ export function getTokenSubject(token: string | null | undefined): string | null
     return null;
   }
 }
+
+// —— 前台登录失败锁定：10 分钟内失败 5 次 → 锁定该来源 30 分钟（与后台同款规则）——
+const LOGIN_FAIL_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_LOCK_MS = 30 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
+const loginFailures = new Map<string, number[]>();
+const loginLockedUntil = new Map<string, number>();
+
+export function loginLockedOut(key: string): boolean {
+  const until = loginLockedUntil.get(key) || 0;
+  if (Date.now() < until) return true;
+  if (until) loginLockedUntil.delete(key);
+  return false;
+}
+
+export function recordLoginFailure(key: string): void {
+  const now = Date.now();
+  const list = (loginFailures.get(key) || []).filter((t) => now - t < LOGIN_FAIL_WINDOW_MS);
+  list.push(now);
+  loginFailures.set(key, list);
+  console.warn(`前台登录失败：来源 ${key}，近 10 分钟失败 ${list.length} 次`);
+  if (list.length >= LOGIN_MAX_FAILURES) {
+    loginLockedUntil.set(key, now + LOGIN_LOCK_MS);
+    loginFailures.set(key, []);
+    console.warn(`前台登录失败过多：来源 ${key} 已锁定 30 分钟`);
+  }
+}
+
+export function clearLoginFailures(key: string): void {
+  loginFailures.delete(key);
+}

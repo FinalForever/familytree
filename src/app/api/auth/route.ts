@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
 import { normalizeUsername, verifyUserPassword } from '@/utils/users';
 import {
+  clearLoginFailures,
   clientKey,
   isAuthConfigured,
   issueToken,
+  loginLockedOut,
   loginRateLimited,
   recordLoginAttempt,
+  recordLoginFailure,
 } from '@/utils/auth';
 
 // 账号 + 密码登录：口令以 scrypt 哈希存于服务端账号文件，校验通过后
@@ -21,6 +24,12 @@ export async function POST(request: Request) {
     }
 
     const key = clientKey(request);
+    if (loginLockedOut(key)) {
+      return NextResponse.json(
+        { success: false, message: '失败次数过多，该来源已被临时锁定，请 30 分钟后再试' },
+        { status: 429 }
+      );
+    }
     if (loginRateLimited(key)) {
       return NextResponse.json(
         { success: false, message: '尝试次数过多，请 10 分钟后再试' },
@@ -41,11 +50,14 @@ export async function POST(request: Request) {
     recordLoginAttempt(key);
 
     if (!verifyUserPassword(username, password)) {
+      recordLoginFailure(key);
       return NextResponse.json(
         { success: false, message: '账号或密码不正确' },
         { status: 401 }
       );
     }
+
+    clearLoginFailures(key);
 
     const token = issueToken(normalizeUsername(username));
     const res = NextResponse.json({ success: true });
