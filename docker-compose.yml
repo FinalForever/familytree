@@ -21,9 +21,8 @@ services:
       - CONFIG_DIR=/app/config
       - DATA_DIR=/app/data
       - REQUIRE_AUTH=true
-      # 注册开关：true 开放邮箱注册；改为 false 后重启容器即关闭注册（已有账号不受影响）
-      - REGISTRATION_OPEN=true
-    # 容器加固：只读根文件系统、去掉全部 capabilities、禁止提权、资源上限
+      - REGISTRATION_OPEN=true   # 注册开关：true 开放邮箱注册；改为 false 后重启容器即关闭注册（已有账号不受影响）
+    # 以下为容器加固：只读根文件系统、去掉全部 capabilities、禁止提权、资源上限
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
