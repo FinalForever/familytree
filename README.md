@@ -28,7 +28,7 @@
 - **账号安全**：密码以 scrypt 哈希存储，绝不存明文；会话为 HMAC-SHA256 签名令牌 + HttpOnly Cookie；登录、注册均有频率限制（10 次/10 分钟），且前台登录 10 分钟内失败 5 次即锁定来源 IP 30 分钟（锁定期内正确密码也不放行）；账号被删除后，其已登录会话立即失效
 - **后台防爆破**：`/admin` 登录单独设防——按来源 IP 限流 5 次/10 分钟，10 分钟内失败 5 次即锁定该来源 30 分钟（期间正确口令也不放行），每次失败尝试都记入服务日志；再叠加全站 60 次/分钟的统一限速。站点只经 Cloudflare Tunnel 对外，限流按隧道透传的真实访客 IP 计数，无法靠伪造来源绕开。加上管理员口令本身为随机长字符串，暴力破解在速率上不可行
 - **漏洞修复**：Next.js 升至 15.5.28、React 升至 19.3.1（覆盖 CVE-2025-55182 RSC 远程执行、CVE-2025-29927 中间件鉴权绕过）；`package-lock.json` 已在官方 npm 源重新生成（上游锁文件有 10 条 integrity 与官方仓库不一致且全部指向 npmmirror，原样无法 `npm ci`）；搜索高亮输出做了 HTML 转义，堵住存储型 XSS
-- **部署加固**：Docker 容器只读根文件系统、`cap_drop: ALL`、`no-new-privileges`、内存/CPU/进程数上限、非 root 运行；对外只经 Cloudflare Tunnel，不映射宿主机端口
+- **部署加固**：Docker 容器只读根文件系统、`cap_drop: ALL`、`no-new-privileges`、内存/CPU/进程数上限、非 root 运行
 
 ## 快速开始（本地开发）
 
@@ -57,7 +57,6 @@ docker compose up -d --build
 
 - 族谱数据在 `config/family-data.json`，修改后即时生效、无需重启
 - 账号与站点设置存放在 `data/` 目录（`users.json`、`settings.json`），请勿提交到仓库
-- 对外访问建议走反向代理或 Cloudflare Tunnel；容器接入 `1panel-network` 时，隧道服务地址填 `http://familytree:3000`
 
 ## 数据格式
 
@@ -101,7 +100,7 @@ The admin backend is the site's only management entry point and is fully separat
 - **Account security**: passwords are stored as scrypt hashes, never in plaintext; sessions are HMAC-SHA256 signed tokens in HttpOnly cookies; sign-in and registration are rate limited (10 attempts / 10 minutes), and 5 failed sign-ins within 10 minutes lock the source IP out for 30 minutes (even the correct password is refused during lockout); deleting an account invalidates its live sessions immediately
 - **Admin brute-force protection**: `/admin` sign-in has its own dedicated defenses — rate limited to 5 attempts per 10 minutes per source IP, and 5 failures within 10 minutes lock that source out for 30 minutes (even the correct password is refused during lockout); every failed attempt is written to the service log. This sits on top of the site-wide 60 requests/minute limit. Because the site is exposed only through a Cloudflare Tunnel, limits are counted against the real visitor IP passed through the tunnel and cannot be dodged with forged source headers. Combined with a long random administrator password, brute force is rate-wise infeasible
 - **Vulnerability fixes**: Next.js upgraded to 15.5.28 and React to 19.3.1 (covering CVE-2025-55182, an RSC remote code execution flaw, and CVE-2025-29927, a middleware authorization bypass); `package-lock.json` was regenerated against the official npm registry (the upstream lockfile had 10 integrity hashes that did not match the official registry and pointed entirely at npmmirror, so `npm ci` failed as-is); search highlighting output is HTML-escaped, closing a stored-XSS hole
-- **Deployment hardening**: the Docker container runs with a read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, memory/CPU/PID limits and a non-root user; it is exposed only through a Cloudflare Tunnel with no host port mapping
+- **Deployment hardening**: the Docker container runs with a read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, memory/CPU/PID limits and a non-root user
 
 ## Quick start (local development)
 
@@ -130,7 +129,6 @@ Data and accounts:
 
 - Genealogy data lives in `config/family-data.json` and takes effect immediately after editing, no restart needed
 - Accounts and site settings are stored under `data/` (`users.json`, `settings.json`); do not commit them
-- Expose the site through a reverse proxy or a Cloudflare Tunnel; when the container joins `1panel-network`, point the tunnel service at `http://familytree:3000`
 
 ## Data format
 
