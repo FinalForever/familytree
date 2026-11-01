@@ -4,7 +4,7 @@ services:
       context: .
       args:
         NEXT_PUBLIC_REQUIRE_AUTH: "true"
-        NEXT_PUBLIC_FAMILY_NAME: "陈"
+        NEXT_PUBLIC_FAMILY_NAME: "白"
     container_name: familytree
     restart: unless-stopped
     # 不映射宿主机端口：对外只走 Cloudflare Tunnel（经 1panel-network 按容器名 familytree:3000 直达）
