@@ -7,8 +7,7 @@ services:
         NEXT_PUBLIC_FAMILY_NAME: "白"
     container_name: familytree
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:3007:3000"
+    # 不映射宿主机端口：对外只走 Cloudflare Tunnel（经 1panel-network 按容器名 familytree:3000 直达）
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
