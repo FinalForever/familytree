@@ -10,6 +10,8 @@ interface UserItem {
 export default function AdminPanel() {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [registrationOpen, setRegistrationOpen] = useState<boolean>(true);
+  const [familyName, setFamilyName] = useState('');
+  const [familyNameInput, setFamilyNameInput] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [resetPasswords, setResetPasswords] = useState<Record<string, string>>({});
@@ -25,7 +27,13 @@ export default function AdminPanel() {
       const usersData = await usersRes.json();
       const regData = await regRes.json();
       if (usersData.success) setUsers(usersData.users);
-      if (regData.success) setRegistrationOpen(regData.registrationOpen);
+      if (regData.success) {
+        setRegistrationOpen(regData.registrationOpen);
+        if (regData.familyName) {
+          setFamilyName(regData.familyName);
+          setFamilyNameInput(regData.familyName);
+        }
+      }
     } catch {
       setError('加载失败，请刷新重试');
     }
@@ -107,6 +115,24 @@ export default function AdminPanel() {
     }
   };
 
+  const handleSaveFamilyName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ familyName: familyNameInput }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      setFamilyName(data.familyName);
+      setMessage(`姓氏已改为「${data.familyName}」，全站即时生效`);
+      setError('');
+    } else {
+      setError(data.message || '保存失败');
+      setMessage('');
+    }
+  };
+
   const handleLogout = async () => {
     await fetch('/api/admin/logout', { method: 'POST' });
     window.location.reload();
@@ -143,6 +169,28 @@ export default function AdminPanel() {
               {registrationOpen ? '关闭注册' : '开放注册'}
             </button>
           </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+          <div className="font-medium text-gray-900">家族姓氏</div>
+          <div className="text-sm text-gray-500">当前：{familyName}氏族谱。改后标题、登录页、页眉页脚即时生效，无需重启。</div>
+          <form onSubmit={handleSaveFamilyName} className="flex gap-3">
+            <input
+              type="text"
+              required
+              maxLength={4}
+              placeholder="如：陈"
+              className="w-40 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              value={familyNameInput}
+              onChange={(e) => setFamilyNameInput(e.target.value)}
+            />
+            <button
+              type="submit"
+              className="py-2 px-4 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+            >
+              保存
+            </button>
+          </form>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">

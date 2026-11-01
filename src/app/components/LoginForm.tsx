@@ -2,20 +2,20 @@
 
 import { useState } from 'react';
 import { UserIcon, KeyIcon } from '@heroicons/react/24/outline';
-import { getFamilyFullName } from '@/utils/config';
 
 interface LoginFormProps {
   registrationOpen: boolean;
+  familyName: string;
 }
 
-export default function LoginForm({ registrationOpen }: LoginFormProps) {
+export default function LoginForm({ registrationOpen, familyName }: LoginFormProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  // 获取完整姓氏名称（带"氏"字）
-  const familyFullName = getFamilyFullName();
+  // 完整姓氏名称（带"氏"字），由服务端按运行时设置传入
+  const familyFullName = `${familyName}氏`;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

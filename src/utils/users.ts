@@ -112,6 +112,7 @@ export function setUserPassword(username: string, password: string): boolean {
 // 站点设置（存 DATA_DIR/settings.json，后台可改、即时生效）
 interface SiteSettings {
   registrationOpen?: boolean;
+  familyName?: string;
 }
 
 function settingsFile(): string {
@@ -136,4 +137,20 @@ export function saveSettings(settings: SiteSettings): void {
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(settings, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, file);
+}
+
+// 家族姓氏：后台设置优先（即时生效），其次构建时环境变量 NEXT_PUBLIC_FAMILY_NAME，默认「白」
+export function getFamilyName(): string {
+  const settings = loadSettings();
+  if (settings.familyName && settings.familyName.trim()) return settings.familyName.trim();
+  return process.env.NEXT_PUBLIC_FAMILY_NAME || '白';
+}
+
+export function setFamilyName(name: string): boolean {
+  const trimmed = name.trim();
+  if (!/^[一-龥A-Za-z]{1,4}$/.test(trimmed)) return false;
+  const settings = loadSettings();
+  settings.familyName = trimmed;
+  saveSettings(settings);
+  return true;
 }

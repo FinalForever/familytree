@@ -1,26 +1,29 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Script from "next/script";
+import { getFamilyName } from "@/utils/users";
 
-// 从环境变量中获取姓氏
-const familyName = process.env.NEXT_PUBLIC_FAMILY_NAME || '姓氏';
 // 从环境变量中获取谷歌统计ID
 const googleAnalyticsId = process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID;
 
-export const metadata: Metadata = {
-  title: `${familyName}氏族谱`,
-  description: `${familyName}氏家族族谱记录`,
-  robots: {
-    index: false,
-    follow: false,
-    nocache: true,
-    googleBot: {
+export function generateMetadata(): Metadata {
+  // 姓氏取运行时设置（后台可改，即时生效），不再写死在构建产物里
+  const familyName = getFamilyName();
+  return {
+    title: `${familyName}氏族谱`,
+    description: `${familyName}氏家族族谱记录`,
+    robots: {
       index: false,
       follow: false,
-      noimageindex: true,
+      nocache: true,
+      googleBot: {
+        index: false,
+        follow: false,
+        noimageindex: true,
+      },
     },
-  },
-};
+  };
+}
 
 export default function RootLayout({
   children,

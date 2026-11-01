@@ -7,13 +7,13 @@ import Footer from './Footer';
 import LoginForm from './LoginForm';
 import SearchBar, { SearchFilters } from './SearchBar';
 import { QueueListIcon, Squares2X2Icon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
-import { getPublicConfig, getFamilyFullName } from '@/utils/config';
+import { getPublicConfig } from '@/utils/config';
 import { FamilyData } from '@/types/family';
 import { searchFamilyData, createFilteredFamilyData, SearchResult } from '@/utils/search';
 import { buildFamilyTree } from '@/utils/familyTree';
 import { AUTH_CONFIG } from '@/utils/constants';
 
-export default function HomeClient({ initialData, serverAuthed = false, registrationOpen = false }: { initialData: FamilyData; serverAuthed?: boolean; registrationOpen?: boolean }) {
+export default function HomeClient({ initialData, serverAuthed = false, registrationOpen = false, familyName = '白' }: { initialData: FamilyData; serverAuthed?: boolean; registrationOpen?: boolean; familyName?: string }) {
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
   const [isAuthenticated, setIsAuthenticated] = useState(serverAuthed);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,7 @@ export default function HomeClient({ initialData, serverAuthed = false, registra
   // 使用useMemo缓存配置，避免每次render重新计算
   const publicConfig = useMemo(() => getPublicConfig(), []);
   const requireAuth = publicConfig.isAuthRequired;
-  const familyFullName = useMemo(() => getFamilyFullName(), []);
+  const familyFullName = `${familyName}氏`;
 
   // 使用useMemo缓存树状结构数据的构建
   const treeData = useMemo(() => {
@@ -148,7 +148,7 @@ export default function HomeClient({ initialData, serverAuthed = false, registra
 
   // 如果需要登录且未验证，显示登录表单
   if (requireAuth && !isAuthenticated) {
-    return <LoginForm registrationOpen={registrationOpen} />;
+    return <LoginForm registrationOpen={registrationOpen} familyName={familyName} />;
   }
 
   // 已验证或不需要登录，显示家谱内容
@@ -258,7 +258,7 @@ export default function HomeClient({ initialData, serverAuthed = false, registra
         )}
       </div>
       
-      <Footer />
+      <Footer familyFullName={familyFullName} />
     </main>
   );
 }

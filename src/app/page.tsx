@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { getFamilyDataOnServer } from '@/utils/config';
 import { getTokenSubject } from '@/utils/auth';
-import { findUser, isRegistrationOpen } from '@/utils/users';
+import { findUser, getFamilyName, isRegistrationOpen } from '@/utils/users';
 import HomeClient from './components/HomeClient';
 import LoginForm from './components/LoginForm';
 
@@ -17,9 +17,9 @@ export default async function Page() {
   const subject = getTokenSubject(token);
 
   if (!subject || !findUser(subject)) {
-    return <LoginForm registrationOpen={isRegistrationOpen()} />;
+    return <LoginForm registrationOpen={isRegistrationOpen()} familyName={getFamilyName()} />;
   }
 
   const data = await getFamilyDataOnServer();
-  return <HomeClient initialData={data} serverAuthed />;
+  return <HomeClient initialData={data} serverAuthed familyName={getFamilyName()} />;
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isAdminRequest } from '@/utils/admin';
-import { isRegistrationOpen, setRegistrationOpen } from '@/utils/users';
+import { getFamilyName, isRegistrationOpen, setRegistrationOpen } from '@/utils/users';
 
 // 查询注册开关状态
 export async function GET(request: Request) {
@@ -10,7 +10,11 @@ export async function GET(request: Request) {
       { status: 401 }
     );
   }
-  return NextResponse.json({ success: true, registrationOpen: isRegistrationOpen() });
+  return NextResponse.json({
+    success: true,
+    registrationOpen: isRegistrationOpen(),
+    familyName: getFamilyName(),
+  });
 }
 
 // 打开/关闭注册（写入设置文件，即时生效，无需重启）

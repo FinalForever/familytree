@@ -1,10 +1,7 @@
 "use client";
 
-import { getFamilyFullName } from '@/utils/config';
 
-const Footer = () => {
-  // 获取完整姓氏名称（带"氏"字）
-  const familyFullName = getFamilyFullName();
+const Footer = ({ familyFullName }: { familyFullName: string }) => {
 
   return (
     <footer className="bg-white border-t border-gray-200 mt-12">
