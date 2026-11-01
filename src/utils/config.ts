@@ -1,10 +1,8 @@
 import { FamilyData } from '../types/family';
 
-// 定义配置类型
+// 定义配置类型（口令与签名密钥只经 utils/auth.ts 在服务端读取，不进这里）
 export interface AuthConfig {
   requireAuth: boolean;
-  authMode: 'all' | 'specific';
-  specificName: string;
   familyName: string;
 }
 
@@ -21,7 +19,6 @@ const defaultFamilyData: FamilyData = {
 
 // 缓存配置数据
 let authConfigCache: AuthConfig | null = null;
-let familyDataCache: FamilyData | null = null;
 
 // 在服务器端加载配置文件
 async function loadConfigOnServer<T>(filename: string, defaultConfig: T): Promise<T> {
@@ -38,7 +35,8 @@ async function loadConfigOnServer<T>(filename: string, defaultConfig: T): Promis
       import('path').then(m => m.default)
     ]);
     
-    const configDir = path.join(process.cwd(), 'config');
+    // 优先用环境变量 CONFIG_DIR（Docker 里固定为 /app/config），避免进程工作目录变化导致读不到数据
+    const configDir = process.env.CONFIG_DIR || path.join(process.cwd(), 'config');
     const filePath = path.join(configDir, filename);
     
     if (fs.existsSync(filePath)) {
@@ -53,11 +51,10 @@ async function loadConfigOnServer<T>(filename: string, defaultConfig: T): Promis
 }
 
 // 从环境变量读取服务器端认证配置
+// 鉴权开关以服务端变量 REQUIRE_AUTH 为准（NEXT_PUBLIC_REQUIRE_AUTH 仅供客户端决定是否显示登录页，两者需保持一致）
 function getAuthConfigOnServerFromEnv(): AuthConfig {
   return {
-    requireAuth: process.env.NEXT_PUBLIC_REQUIRE_AUTH === 'true',
-    authMode: (process.env.AUTH_MODE as 'all' | 'specific') || 'specific',
-    specificName: process.env.SPECIFIC_NAME || '',
+    requireAuth: process.env.REQUIRE_AUTH === 'true' || process.env.NEXT_PUBLIC_REQUIRE_AUTH === 'true',
     familyName: process.env.NEXT_PUBLIC_FAMILY_NAME || '姓氏'
   };
 }
@@ -87,11 +84,8 @@ export function getFamilyFullName(): string {
 }
 
 export async function getFamilyDataOnServer(): Promise<FamilyData> {
-  if (familyDataCache) return familyDataCache;
-  
-  const data = await loadConfigOnServer<FamilyData>('family-data.json', defaultFamilyData);
-  familyDataCache = data;
-  return data;
+  // 不缓存：数据文件修改后下一次请求即生效
+  return loadConfigOnServer<FamilyData>('family-data.json', defaultFamilyData);
 }
 
 // 客户端公开配置（只包含可以在客户端公开的信息）

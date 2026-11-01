@@ -117,13 +117,13 @@ const TreeNode = ({ person, level, searchTerm, searchInInfo, firstMatchId }: Tre
           <div>
             <span className="font-medium text-gray-800">
               <span dangerouslySetInnerHTML={{ 
-                __html: searchTerm ? highlightMatch(person.name, searchTerm) : person.name 
+                __html: searchTerm ? highlightMatch(person.name, searchTerm) : highlightMatch(person.name, '') 
               }} />
             </span>
             {person.info && (
               <p className="text-gray-600 text-sm mt-1 max-w-xl">
                 <span dangerouslySetInnerHTML={{ 
-                  __html: (searchTerm && searchInInfo) ? highlightMatch(person.info, searchTerm) : person.info 
+                  __html: (searchTerm && searchInInfo) ? highlightMatch(person.info, searchTerm) : highlightMatch(person.info, '') 
                 }} />
               </p>
             )}

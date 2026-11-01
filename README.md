@@ -1,221 +1,121 @@
-# Family Tree
+# 族谱（Family Tree）
 
-English | [中文](./README.zh.md)
+中文 | [English](#english)
 
-A family tree visualization project built with [Next.js](https://nextjs.org) for displaying and managing your family history and member relationships.
+基于 [Next.js](https://nextjs.org) 的家族族谱展示网站。本仓库在上游开源项目 [qiaoshouqing/familytree](https://github.com/qiaoshouqing/familytree) 的基础上，做了完整的安全加固与账号化改造：族谱数据不再公开下发，必须登录账号才能查看，并配有管理后台。
 
-## Demo Website
+## 功能
 
-You can visit [https://familytree.pomodiary.com/](https://familytree.pomodiary.com/) to see an online demonstration of this project.
+- 多代族谱可视化展示（树形图 + 世代列表），成员关系链接与个人信息详情
+- 按姓名、简介等信息搜索，匹配高亮
+- 账号 + 密码登录后才能查看，未登录时不下发任何族谱数据
+- 开放注册（管理员可在后台随时关闭）
+- 管理后台 `/admin`：指定账号密码新建账号、重置密码、删除账号、开关注册、修改家族姓氏
+- 家族姓氏为运行时设置：后台保存后标题、登录页、页眉页脚即时生效，无需重新构建
 
-## Features
+## 安全改造（相对上游）
 
-- Visual representation of multiple generations of family members
-- Relationship connections between family members
-- Detailed personal information records
-- Optional login authentication mechanism
-- Fully customizable interface and data
+- **数据防爬**：族谱数据改由服务端渲染注入页面，删除了可一次性拖走全部数据的 JSON 接口；全站限速（同一 IP 60 次/分钟）；robots 与响应头禁止搜索引擎收录
+- **账号安全**：密码以 scrypt 哈希存储，绝不存明文；会话为 HMAC-SHA256 签名令牌 + HttpOnly Cookie；登录、注册、后台登录均有频率限制（10 次/10 分钟）；账号被删除后，其已登录会话立即失效
+- **漏洞修复**：Next.js 升至 15.5.28、React 升至 19.3.1（覆盖 CVE-2025-55182 RSC 远程执行、CVE-2025-29927 中间件鉴权绕过）；`package-lock.json` 已在官方 npm 源重新生成（上游锁文件有 10 条 integrity 与官方仓库不一致且全部指向 npmmirror，原样无法 `npm ci`）；搜索高亮输出做了 HTML 转义，堵住存储型 XSS
+- **部署加固**：Docker 容器只读根文件系统、`cap_drop: ALL`、`no-new-privileges`、内存/CPU/进程数上限、非 root 运行；对外只经 Cloudflare Tunnel，不映射宿主机端口
 
-## Quick Start
-
-### Install Dependencies
+## 快速开始（本地开发）
 
 ```bash
 npm install
-# or
-yarn install
-# or
-pnpm install
-# or
-bun install
-```
-
-### Configure the Project
-
-1. Copy the environment variable template and configure it:
-
-```bash
-cp .env.local.example .env.local
-```
-
-2. Set your configurations in the `.env.local` file:
-
-```
-# Whether login authentication is required (true/false)
-NEXT_PUBLIC_REQUIRE_AUTH=false
-
-# Authentication mode (all: allow all family members, specific: only allow specific names)
-AUTH_MODE=specific
-# Specific user login name
-SPECIFIC_NAME=白景琦
-
-# Surname configuration (for website title, description, and footer)
-NEXT_PUBLIC_FAMILY_NAME=白
-
-# Application port configuration
-PORT=3000
-```
-
-### Add Family Data
-
-1. Create your family data file `family-data.json` in the `config` directory, you can refer to `family-data.example.json` or `family-data.json`.
-
-2. Add your family member information in the following format:
-
-```json
-{
-  "generations": [
-    {
-      "title": "First Generation",
-      "people": [
-        {
-          "id": "person-id",
-          "name": "Name",
-          "info": "Person description",
-          "fatherId": "Father's ID",
-          "birthYear": 1900,
-          "deathYear": 1980
-        }
-      ]
-    }
-  ]
-}
-```
-
-Field descriptions:
-- `id`: Unique identifier for each person, used to establish relationships
-- `name`: Name
-- `info`: Personal description, life summary, etc.
-- `fatherId`: Father's ID, used to establish generational relationships
-- `birthYear`: Birth year (optional)
-- `deathYear`: Death year (optional)
-
-### Run the Project
-
-```bash
+cp .env.local.example .env.local   # 按需填写
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Visit [http://localhost:3000](http://localhost:3000) to view your family tree.
+## Docker 部署
 
-## Data Format Details
-
-Family data is stored in JSON format, organized by generations:
-
-- Each generation has a title and a group of people
-- Each person includes ID, name, information, and father's ID
-- Parent-child relationships are established through `fatherId`
-- You can add spouse, children, and other important information in the info field
-
-Example:
-```json
-{
-  "generations": [
-    {
-      "title": "First Generation",
-      "people": [
-        {
-          "id": "ancestor",
-          "name": "Ancestor",
-          "info": "Family founder, born in 1850",
-          "birthYear": 1850
-        }
-      ]
-    },
-    {
-      "title": "Second Generation",
-      "people": [
-        {
-          "id": "second-gen-1",
-          "name": "First Son",
-          "info": "Born in 1880, wife Wang",
-          "fatherId": "ancestor",
-          "birthYear": 1880,
-          "deathYear": 1950
-        },
-        {
-          "id": "second-gen-2",
-          "name": "Second Son",
-          "info": "Born in 1885, wife Li",
-          "fatherId": "ancestor",
-          "birthYear": 1885,
-          "deathYear": 1960
-        }
-      ]
-    }
-  ]
-}
+```bash
+cp .env.local.example .env         # 填写 AUTH_SECRET 与 ADMIN_PASSWORD
+docker compose up -d --build
 ```
 
-## Using AI to Generate Family Data
+主要环境变量（`.env`）：
 
-If you have a large amount of family data to organize, you can use AI to help you quickly generate JSON data in the correct format:
+| 变量 | 说明 |
+| --- | --- |
+| `AUTH_SECRET` | 会话令牌签名密钥（必填，随机长字符串） |
+| `ADMIN_PASSWORD` | 管理后台 `/admin` 的管理员口令 |
+| `REGISTRATION_OPEN` | 注册开关兜底值（`true`/`false`），后台设置优先 |
 
-1. Prepare your family information text, including names, relationships, and relevant information for each generation
-2. Provide the following format guide to AI (such as DeepSeek, ChatGPT, Claude, etc.):
+数据与账号：
 
+- 族谱数据在 `config/family-data.json`，修改后即时生效、无需重启
+- 账号与站点设置存放在 `data/` 目录（`users.json`、`settings.json`），请勿提交到仓库
+- 对外访问建议走反向代理或 Cloudflare Tunnel；容器接入 `1panel-network` 时，隧道服务地址填 `http://familytree:3000`
+
+## 数据格式
+
+`config/family-data.json` 为 `generations` 数组：每一世包含 `title`（如「第一世」）与 `people`，成员以 `id` 标识，并通过父母、配偶等字段的 id 建立关系。可参考仓库内的示例数据。
+
+## 许可
+
+MIT（沿用上游项目）
+
+---
+
+## English
+
+# Family Tree
+
+[中文](#族谱family-tree) | English
+
+A family tree visualization website built with [Next.js](https://nextjs.org). This repository is a hardened, account-based rework of the upstream open-source project [qiaoshouqing/familytree](https://github.com/qiaoshouqing/familytree): genealogy data is no longer served publicly — visitors must sign in with an account, and an admin backend is included.
+
+## Features
+
+- Multi-generation family tree visualization (graph view + generation lists) with relationship links and member details
+- Search across names and biographies with match highlighting
+- Account + password sign-in required; no genealogy data is sent to anonymous visitors
+- Optional open registration (the admin can turn it off at any time)
+- Admin backend at `/admin`: create accounts with chosen credentials, reset passwords, delete accounts, toggle registration, change the family surname
+- The family surname is a runtime setting: saving it in the admin backend updates the title, sign-in page, header and footer immediately, with no rebuild
+
+## Security changes (vs. upstream)
+
+- **Anti-scraping**: data is injected via server-side rendering; the JSON endpoint that returned the entire dataset in one call was removed. Site-wide rate limiting (60 requests/minute per IP); search engines are blocked via robots rules and response headers
+- **Account security**: passwords are stored as scrypt hashes, never in plaintext; sessions are HMAC-SHA256 signed tokens in HttpOnly cookies; sign-in, registration and admin sign-in are rate limited (10 attempts / 10 minutes); deleting an account invalidates its live sessions immediately
+- **Vulnerability fixes**: Next.js upgraded to 15.5.28 and React to 19.3.1 (covering CVE-2025-55182, an RSC remote code execution flaw, and CVE-2025-29927, a middleware authorization bypass); `package-lock.json` was regenerated against the official npm registry (the upstream lockfile had 10 integrity hashes that did not match the official registry and pointed entirely at npmmirror, so `npm ci` failed as-is); search highlighting output is HTML-escaped, closing a stored-XSS hole
+- **Deployment hardening**: the Docker container runs with a read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, memory/CPU/PID limits and a non-root user; it is exposed only through a Cloudflare Tunnel with no host port mapping
+
+## Quick start (local development)
+
+```bash
+npm install
+cp .env.local.example .env.local   # fill in as needed
+npm run dev
 ```
-Please organize the family information I provide into the following JSON format:
-{
-  "generations": [
-    {
-      "title": "Xth Generation",
-      "people": [
-        {
-          "id": "unique-identifier",
-          "name": "Name",
-          "info": "Detailed information",
-          "fatherId": "Father's ID",
-          "birthYear": birth year,
-          "deathYear": death year
-        }
-      ]
-    }
-  ]
-}
 
-Requirements:
-1. Generate a unique id for each person (such as first-gen-1, second-gen-2, etc.)
-2. Correctly set fatherId to establish parent-child relationships
-3. Categorize people by generation
-4. Include spouse, achievements, etc. in the info field
-5. Use birthYear and deathYear to record birth and death years (if available)
-6. Ensure the JSON format is valid and can be directly imported into the system
+## Docker deployment
+
+```bash
+cp .env.local.example .env         # set AUTH_SECRET and ADMIN_PASSWORD
+docker compose up -d --build
 ```
 
-3. Copy the AI-generated JSON to the `config/family-data.json` file
-4. Check and adjust the generated data to ensure relationships are accurate and the format is correct
+Main environment variables (`.env`):
 
-This method can quickly convert unstructured family information into the JSON format required by the system, particularly suitable for large amounts of data.
+| Variable | Description |
+| --- | --- |
+| `AUTH_SECRET` | Signing key for session tokens (required, long random string) |
+| `ADMIN_PASSWORD` | Password for the admin backend at `/admin` |
+| `REGISTRATION_OPEN` | Fallback registration switch (`true`/`false`); the admin-backend setting takes precedence |
 
-## Customization and Extension
+Data and accounts:
 
-- Adjust the data file in `config/family-data.json` to update family information
-- Edit the `.env.local` file to change configuration and authentication methods
+- Genealogy data lives in `config/family-data.json` and takes effect immediately after editing, no restart needed
+- Accounts and site settings are stored under `data/` (`users.json`, `settings.json`); do not commit them
+- Expose the site through a reverse proxy or a Cloudflare Tunnel; when the container joins `1panel-network`, point the tunnel service at `http://familytree:3000`
 
-## Deployment
+## Data format
 
-It is recommended to deploy your family tree project using the [Vercel platform](https://vercel.com/new):
-
-1. Push your code to GitHub/GitLab/Bitbucket
-2. Import your repository on Vercel
-3. Set environment variables
-4. Deploy
-
-## Related Services
-
-**[FateMaster.AI](https://www.fatemaster.ai)** - AI Chinese astrology website, providing intelligent fortune analysis services.
-
-## Contribution
-
-Pull Requests and Issues are welcome to improve this project.
+`config/family-data.json` holds a `generations` array: each generation has a `title` (e.g. "Generation 1") and `people`; members carry an `id` and reference parents/spouses by id. See the sample data in the repository.
 
 ## License
 
-MIT
+MIT (same as upstream)

@@ -1,28 +1,7 @@
 import { NextResponse } from 'next/server';
-import path from 'path';
-import fs from 'fs';
 
+// 族谱数据已改为服务端渲染注入页面，不再提供 JSON 数据接口（防批量爬取）。
+// 保留此路由仅为让旧调用方明确得到 404，而不是暴露任何数据。
 export async function GET() {
-  try {
-    const configPath = path.join(process.cwd(), 'config', 'family-data.json');
-    
-    // 检查文件是否存在
-    if (!fs.existsSync(configPath)) {
-      console.warn('family-data.json not found, returning empty data');
-      return NextResponse.json({
-        generations: []
-      });
-    }
-
-    // 读取并解析文件
-    const fileContent = fs.readFileSync(configPath, 'utf8');
-    const data = JSON.parse(fileContent);
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error('Error loading family data:', error);
-    return NextResponse.json(
-      { error: 'Failed to load family data' },
-      { status: 500 }
-    );
-  }
-} 
+  return NextResponse.json({ error: 'Not found' }, { status: 404 });
+}
