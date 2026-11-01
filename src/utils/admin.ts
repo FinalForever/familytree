@@ -28,3 +28,55 @@ export function isAdminRequest(request: Request): boolean {
   if (!m) return false;
   return getTokenSubject(decodeURIComponent(m[1])) === ADMIN_SUBJECT;
 }
+
+// —— 管理员登录防爆破（内存实现，单实例部署足够；计数按来源 IP，容器重启清零）——
+// 两道闸：①任意尝试限流（默认 5 次/10 分钟）；②失败锁定（默认 10 分钟内失败 5 次 → 锁定该来源 30 分钟）。
+// 阈值可用环境变量 ADMIN_MAX_ATTEMPTS / ADMIN_MAX_FAILURES 覆盖。
+const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+const FAIL_WINDOW_MS = 10 * 60 * 1000;
+const LOCK_MS = 30 * 60 * 1000;
+const adminAttempts = new Map<string, number[]>();
+const adminFailures = new Map<string, number[]>();
+const adminLockedUntil = new Map<string, number>();
+
+function envInt(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback;
+}
+
+function recent(map: Map<string, number[]>, key: string, windowMs: number): number[] {
+  const now = Date.now();
+  const list = (map.get(key) || []).filter((t) => now - t < windowMs);
+  map.set(key, list);
+  return list;
+}
+
+export function adminRateLimited(key: string): boolean {
+  return recent(adminAttempts, key, ATTEMPT_WINDOW_MS).length >= envInt('ADMIN_MAX_ATTEMPTS', 5);
+}
+
+export function recordAdminAttempt(key: string): void {
+  recent(adminAttempts, key, ATTEMPT_WINDOW_MS).push(Date.now());
+}
+
+export function adminLockedOut(key: string): boolean {
+  const until = adminLockedUntil.get(key) || 0;
+  if (Date.now() < until) return true;
+  if (until) adminLockedUntil.delete(key);
+  return false;
+}
+
+export function recordAdminFailure(key: string): void {
+  const list = recent(adminFailures, key, FAIL_WINDOW_MS);
+  list.push(Date.now());
+  console.warn(`管理员登录失败：来源 ${key}，近 10 分钟失败 ${list.length} 次`);
+  if (list.length >= envInt('ADMIN_MAX_FAILURES', 5)) {
+    adminLockedUntil.set(key, Date.now() + LOCK_MS);
+    adminFailures.set(key, []);
+    console.warn(`管理员登录失败过多：来源 ${key} 已锁定 30 分钟`);
+  }
+}
+
+export function clearAdminFailures(key: string): void {
+  adminFailures.delete(key);
+}

@@ -2,17 +2,18 @@ import { NextResponse } from 'next/server';
 import {
   ADMIN_COOKIE,
   ADMIN_SUBJECT,
+  adminLockedOut,
+  adminRateLimited,
   checkAdminPassword,
+  clearAdminFailures,
   isAdminConfigured,
+  recordAdminAttempt,
+  recordAdminFailure,
 } from '@/utils/admin';
-import {
-  clientKey,
-  issueToken,
-  loginRateLimited,
-  recordLoginAttempt,
-} from '@/utils/auth';
+import { clientKey, issueToken } from '@/utils/auth';
 
-// 管理员登录：口令只存服务端环境变量 ADMIN_PASSWORD，成功后下发独立的管理员会话 Cookie
+// 管理员登录：口令只存服务端环境变量 ADMIN_PASSWORD，成功后下发独立的管理员会话 Cookie。
+// 防爆破：按来源限流 5 次/10 分钟；10 分钟内失败 5 次锁定该来源 30 分钟；失败尝试记入日志。
 export async function POST(request: Request) {
   try {
     if (!isAdminConfigured()) {
@@ -23,7 +24,14 @@ export async function POST(request: Request) {
     }
 
     const key = `admin:${clientKey(request)}`;
-    if (loginRateLimited(key)) {
+
+    if (adminLockedOut(key)) {
+      return NextResponse.json(
+        { success: false, message: '失败次数过多，该来源已被临时锁定，请 30 分钟后再试' },
+        { status: 429 }
+      );
+    }
+    if (adminRateLimited(key)) {
       return NextResponse.json(
         { success: false, message: '尝试次数过多，请 10 分钟后再试' },
         { status: 429 }
@@ -32,15 +40,17 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const password = typeof body?.password === 'string' ? body.password : '';
-    recordLoginAttempt(key);
+    recordAdminAttempt(key);
 
     if (!checkAdminPassword(password)) {
+      recordAdminFailure(key);
       return NextResponse.json(
         { success: false, message: '管理员口令不正确' },
         { status: 401 }
       );
     }
 
+    clearAdminFailures(key);
     const token = issueToken(ADMIN_SUBJECT);
     const res = NextResponse.json({ success: true });
     res.cookies.set(ADMIN_COOKIE, token, {
