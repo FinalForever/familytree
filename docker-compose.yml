@@ -7,13 +7,11 @@ services:
         NEXT_PUBLIC_FAMILY_NAME: "白"
     container_name: familytree
     restart: unless-stopped
-    # 不映射宿主机端口：对外只走 Cloudflare Tunnel（经 1panel-network 按容器名 familytree:3000 直达）
+    ports:
+      - "3000:3000"
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
-    networks:
-      - default
-      - panel
     env_file:
       - .env
     environment:
@@ -21,7 +19,7 @@ services:
       - CONFIG_DIR=/app/config
       - DATA_DIR=/app/data
       - REQUIRE_AUTH=true
-      - REGISTRATION_OPEN=true   # 注册开关：true 开放邮箱注册；改为 false 后重启容器即关闭注册（已有账号不受影响）
+      - REGISTRATION_OPEN=true   # 注册开关：true 开放注册；改为 false 后重启容器即关闭注册（已有账号不受影响）
     # 以下为容器加固：只读根文件系统、去掉全部 capabilities、禁止提权、资源上限
     read_only: true
     tmpfs:
@@ -41,8 +39,13 @@ services:
       retries: 3
       start_period: 20s
 
-networks:
-  # 与 1Panel 的 cloudflared 容器同网：Cloudflare Tunnel 的服务地址填 http://familytree:3000 即可直达
-  panel:
-    external: true
-    name: 1panel-network
+# 可选：如需让其他容器按容器名 familytree:3000 访问本服务（例如与反向代理或隧道容器同网），
+# 可把下面 networks 段的注释去掉，并给上面的 service 增加 networks 配置：
+#    networks:
+#      - default
+#      - panel
+#
+# networks:
+#   panel:
+#     external: true
+#     name: your-network-name
