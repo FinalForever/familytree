@@ -1,10 +1,8 @@
 import { FamilyData } from '../types/family';
 
-// 定义配置类型
+// 定义配置类型（口令与签名密钥只经 utils/auth.ts 在服务端读取，不进这里）
 export interface AuthConfig {
   requireAuth: boolean;
-  authMode: 'all' | 'specific';
-  specificName: string;
   familyName: string;
 }
 
@@ -53,11 +51,10 @@ async function loadConfigOnServer<T>(filename: string, defaultConfig: T): Promis
 }
 
 // 从环境变量读取服务器端认证配置
+// 鉴权开关以服务端变量 REQUIRE_AUTH 为准（NEXT_PUBLIC_REQUIRE_AUTH 仅供客户端决定是否显示登录页，两者需保持一致）
 function getAuthConfigOnServerFromEnv(): AuthConfig {
   return {
-    requireAuth: process.env.NEXT_PUBLIC_REQUIRE_AUTH === 'true',
-    authMode: (process.env.AUTH_MODE as 'all' | 'specific') || 'specific',
-    specificName: process.env.SPECIFIC_NAME || '',
+    requireAuth: process.env.REQUIRE_AUTH === 'true' || process.env.NEXT_PUBLIC_REQUIRE_AUTH === 'true',
     familyName: process.env.NEXT_PUBLIC_FAMILY_NAME || '姓氏'
   };
 }

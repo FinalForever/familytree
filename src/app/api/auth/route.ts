@@ -1,80 +1,68 @@
 import { NextResponse } from 'next/server';
-import { getAuthConfigOnServer, getFamilyDataOnServer } from '@/utils/config';
+import { getAuthConfigOnServer } from '@/utils/config';
+import {
+  checkPassword,
+  clientKey,
+  isAuthConfigured,
+  issueToken,
+  loginRateLimited,
+  recordLoginAttempt,
+} from '@/utils/auth';
 
+// 口令登录：口令只存于服务端环境变量 FAMILY_PASSWORD；
+// 成功后签发 HMAC 签名令牌，并同时写入 HttpOnly Cookie。
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { name } = body;
-    
-    console.log('收到验证请求:', { name });
-    
-    // 获取验证模式
     const authConfig = await getAuthConfigOnServer();
-    const authMode = authConfig.authMode;
-    
-    // 在 specific 模式下，只允许输入配置的特定名称
-    if (authMode === 'specific') {
-      const isValid = name === authConfig.specificName;
-      
-      console.log('验证模式: specific, 验证结果:', isValid);
-      
-      if (isValid) {
-        const tokenData = JSON.stringify({
-          name,
-          exp: Date.now() + 24 * 60 * 60 * 1000
-        });
-        
-        const token = Buffer.from(tokenData).toString('base64');
-        
-        return NextResponse.json({ 
-          success: true, 
-          token 
-        });
-      }
-      
-      return NextResponse.json({ 
-        success: false, 
-        message: '请输入正确的姓名' 
-      }, { status: 401 });
+
+    // 未开启鉴权时直接放行
+    if (!authConfig.requireAuth) {
+      return NextResponse.json({ success: true });
     }
-    
-    // all 模式下，允许所有家族成员登录
-    const familyData = await getFamilyDataOnServer();
-    const allNames = new Set<string>();
-    familyData.generations.forEach(generation => {
-      generation.people.forEach(person => {
-        allNames.add(person.name);
-      });
+
+    // 开启了鉴权但服务端没配好口令/密钥：失败关闭，不放行
+    if (!isAuthConfigured()) {
+      console.error('鉴权已开启但未配置 FAMILY_PASSWORD / AUTH_SECRET，拒绝登录');
+      return NextResponse.json(
+        { success: false, message: '服务器未完成安全配置，请联系管理员' },
+        { status: 500 }
+      );
+    }
+
+    const key = clientKey(request);
+    if (loginRateLimited(key)) {
+      return NextResponse.json(
+        { success: false, message: '尝试次数过多，请 10 分钟后再试' },
+        { status: 429 }
+      );
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const password = typeof body?.password === 'string' ? body.password : '';
+
+    recordLoginAttempt(key);
+
+    if (!checkPassword(password)) {
+      return NextResponse.json(
+        { success: false, message: '口令不正确' },
+        { status: 401 }
+      );
+    }
+
+    const token = issueToken();
+    const res = NextResponse.json({ success: true, token });
+    res.cookies.set('ft_session', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 24 * 60 * 60,
     });
-    
-    const isValid = allNames.has(name);
-    
-    console.log('验证模式: all, 验证结果:', isValid);
-    
-    if (isValid) {
-      const tokenData = JSON.stringify({
-        name,
-        exp: Date.now() + 24 * 60 * 60 * 1000
-      });
-      
-      const token = Buffer.from(tokenData).toString('base64');
-      
-      return NextResponse.json({ 
-        success: true, 
-        token 
-      });
-    }
-    
-    return NextResponse.json({ 
-      success: false, 
-      message: '姓名不正确' 
-    }, { status: 401 });
-    
+    return res;
   } catch (error) {
     console.error('验证过程中出错:', error);
-    return NextResponse.json({ 
-      success: false, 
-      message: '验证失败，请重试' 
-    }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: '验证失败，请重试' },
+      { status: 500 }
+    );
   }
-} 
+}

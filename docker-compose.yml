@@ -1,0 +1,24 @@
+services:
+  familytree:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_REQUIRE_AUTH: "true"
+        NEXT_PUBLIC_FAMILY_NAME: "白"
+    container_name: familytree
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3007:3000"
+    volumes:
+      - ./config:/app/config:ro
+    env_file:
+      - .env
+    environment:
+      - PORT=3000
+      - REQUIRE_AUTH=true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

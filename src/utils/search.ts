@@ -168,11 +168,23 @@ export function searchFamilyData(familyData: FamilyData, searchTerm: string, fil
 }
 
 // 高亮匹配文本
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function highlightMatch(text: string, searchTerm: string): string {
-    if (!text || !searchTerm) return text;
-    
-    const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    return text.replace(regex, '<mark class="bg-yellow-200 px-1 rounded">$1</mark>');
+    // 先做 HTML 转义再插入 <mark>，防止族谱数据中的 HTML/JS 被当作标记渲染（存储型 XSS）
+    const escaped = escapeHtml(text || '');
+    if (!searchTerm) return escaped;
+
+    const pattern = escapeHtml(searchTerm).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${pattern})`, 'gi');
+    return escaped.replace(regex, '<mark class="bg-yellow-200 px-1 rounded">$1</mark>');
 }
 
 // 创建搜索结果的过滤后家族数据

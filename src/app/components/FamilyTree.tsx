@@ -95,7 +95,7 @@ const PersonCard = ({
                         </div>
                         <h3 className="text-xl font-semibold text-gray-800 group-hover:text-blue-600 transition-colors duration-300">
                             <span dangerouslySetInnerHTML={{ 
-                                __html: searchTerm ? highlightMatch(person.name, searchTerm) : person.name 
+                                __html: searchTerm ? highlightMatch(person.name, searchTerm) : highlightMatch(person.name, '') 
                             }} />
                         </h3>
                     </div>
@@ -150,7 +150,7 @@ const PersonCard = ({
                 
                 <p className={`text-gray-600 text-sm leading-relaxed mb-3 ${expanded ? '' : 'line-clamp-3'}`}>
                     <span dangerouslySetInnerHTML={{ 
-                        __html: (searchTerm && searchInInfo) ? highlightMatch(person.info, searchTerm) : person.info 
+                        __html: (searchTerm && searchInInfo) ? highlightMatch(person.info, searchTerm) : highlightMatch(person.info, '') 
                     }} />
                 </p>
                 {(person.birthYear || person.deathYear) && (

@@ -23,8 +23,11 @@ export function useFamilyData(): {
       try {
         setLoading(true);
         
-        // 从新的 API 端点获取数据
-        const response = await fetch('/api/family-data');
+        // 从新的 API 端点获取数据（带上登录令牌，服务端开启鉴权时会校验）
+        const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+        const response = await fetch('/api/family-data', {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
         
         if (!response.ok) {
           throw new Error(`API返回错误状态: ${response.status}`);
