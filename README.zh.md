@@ -1,222 +1,58 @@
-# 家族族谱 (Family Tree)
+# 族谱（Family Tree）
 
-[English](./README.md) | 中文
+[English](./README.md#english) | 中文
 
-这是一个基于 [Next.js](https://nextjs.org) 开发的家族谱展示项目，可以用来展示和管理您的家族历史和成员关系。
+基于 [Next.js](https://nextjs.org) 的家族族谱展示网站。本仓库在上游开源项目 [qiaoshouqing/familytree](https://github.com/qiaoshouqing/familytree) 的基础上，做了完整的安全加固与账号化改造：族谱数据不再公开下发，必须登录账号才能查看，并配有管理后台。
 
-## 演示网站
+## 功能
 
-您可以通过访问 [https://familytree.pomodiary.com/](https://familytree.pomodiary.com/) 查看本项目的在线演示。
+- 多代族谱可视化展示（树形图 + 世代列表），成员关系链接与个人信息详情
+- 按姓名、简介等信息搜索，匹配高亮
+- 账号 + 密码登录后才能查看，未登录时不下发任何族谱数据
+- 开放注册（管理员可在后台随时关闭）
+- 管理后台 `/admin`：指定账号密码新建账号、重置密码、删除账号、开关注册、修改家族姓氏
+- 家族姓氏为运行时设置：后台保存后标题、登录页、页眉页脚即时生效，无需重新构建
 
-## 功能特点
+## 安全改造（相对上游）
 
-- 多代家族成员的可视化展示
-- 家族成员之间的关系链接
-- 个人详细信息记录
-- 可选的登录验证机制
-- 完全可定制的界面和数据
+- **数据防爬**：族谱数据改由服务端渲染注入页面，删除了可一次性拖走全部数据的 JSON 接口；全站限速（同一 IP 60 次/分钟）；robots 与响应头禁止搜索引擎收录
+- **账号安全**：密码以 scrypt 哈希存储，绝不存明文；会话为 HMAC-SHA256 签名令牌 + HttpOnly Cookie；登录、注册、后台登录均有频率限制（10 次/10 分钟）；账号被删除后，其已登录会话立即失效
+- **漏洞修复**：Next.js 升至 15.5.28、React 升至 19.3.1（覆盖 CVE-2025-55182 RSC 远程执行、CVE-2025-29927 中间件鉴权绕过）；`package-lock.json` 已在官方 npm 源重新生成（上游锁文件有 10 条 integrity 与官方仓库不一致且全部指向 npmmirror，原样无法 `npm ci`）；搜索高亮输出做了 HTML 转义，堵住存储型 XSS
+- **部署加固**：Docker 容器只读根文件系统、`cap_drop: ALL`、`no-new-privileges`、内存/CPU/进程数上限、非 root 运行；对外只经 Cloudflare Tunnel，不映射宿主机端口
 
-## 快速开始
-
-### 安装依赖
+## 快速开始（本地开发）
 
 ```bash
 npm install
-# 或
-yarn install
-# 或
-pnpm install
-# 或
-bun install
-```
-
-### 配置项目
-
-1. 复制环境变量模板并进行配置：
-
-```bash
-cp .env.local.example .env.local
-```
-
-2. 在 `.env.local` 文件中设置您的配置：
-
-```
-# 是否需要登录验证 (true/false)
-NEXT_PUBLIC_REQUIRE_AUTH=false
-
-# 验证模式 (all: 允许所有家族成员, specific: 只允许输入特定名称)
-AUTH_MODE=specific
-# 特定用户登录名称
-SPECIFIC_NAME=白景琦
-
-# 姓氏配置（用于网站标题、描述和页脚）
-NEXT_PUBLIC_FAMILY_NAME=白
-
-# 应用端口号配置
-PORT=3000
-```
-
-### 添加家族数据
-
-1. 在 `config` 目录中创建您的家族数据文件`family-data.json`，可以参考 `family-data.example.json` 或 `family-data.json`。
-
-2. 按照以下格式添加您的家族成员信息：
-
-```json
-{
-  "generations": [
-    {
-      "title": "第一世",
-      "people": [
-        {
-          "id": "person-id",
-          "name": "姓名",
-          "info": "人物描述",
-          "fatherId": "父亲ID",
-          "birthYear": 1900,
-          "deathYear": 1980
-        }
-      ]
-    }
-  ]
-}
-```
-
-字段说明：
-- `id`: 每个人的唯一标识符，用于建立关系
-- `name`: 姓名
-- `info`: 个人描述、生平简介等
-- `fatherId`: 父亲的ID，用于建立代际关系
-- `birthYear`: 出生年份（可选）
-- `deathYear`: 逝世年份（可选）
-
-### 运行项目
-
-```bash
+cp .env.local.example .env.local   # 按需填写
 npm run dev
-# 或
-yarn dev
-# 或
-pnpm dev
-# 或
-bun dev
 ```
 
-访问 [http://localhost:3000](http://localhost:3000) 查看您的家族谱。
+## Docker 部署
 
-## 数据格式详解
-
-家族数据以 JSON 格式存储，按照世代（generations）组织：
-
-- 每个世代有一个标题（title）和一组人员（people）
-- 每个人员包含 ID、姓名、信息和父亲ID
-- 通过 `fatherId` 建立父子关系
-- 可以在信息字段中添加配偶、子女和其他重要信息
-
-示例：
-```json
-{
-  "generations": [
-    {
-      "title": "第一世",
-      "people": [
-        {
-          "id": "ancestor",
-          "name": "始祖",
-          "info": "家族创始人，生于1850年",
-          "birthYear": 1850
-        }
-      ]
-    },
-    {
-      "title": "第二世",
-      "people": [
-        {
-          "id": "second-gen-1",
-          "name": "长子",
-          "info": "生于1880年，妻王氏",
-          "fatherId": "ancestor",
-          "birthYear": 1880,
-          "deathYear": 1950
-        },
-        {
-          "id": "second-gen-2",
-          "name": "次子",
-          "info": "生于1885年，妻李氏",
-          "fatherId": "ancestor",
-          "birthYear": 1885,
-          "deathYear": 1960
-        }
-      ]
-    }
-  ]
-}
+```bash
+cp .env.local.example .env         # 填写 AUTH_SECRET 与 ADMIN_PASSWORD
+docker compose up -d --build
 ```
 
-## 利用AI生成家族数据
+主要环境变量（`.env`）：
 
-如果您有大量家族数据需要整理，可以借助AI来帮助您快速生成符合格式的JSON数据：
+| 变量 | 说明 |
+| --- | --- |
+| `AUTH_SECRET` | 会话令牌签名密钥（必填，随机长字符串） |
+| `ADMIN_PASSWORD` | 管理后台 `/admin` 的管理员口令 |
+| `REGISTRATION_OPEN` | 注册开关兜底值（`true`/`false`），后台设置优先 |
 
-1. 准备您的家族信息文本，包括各代人物姓名、关系和相关信息
-2. 向AI（如DeepSeek、ChatGPT、Claude等）提供以下格式指引：
+数据与账号：
 
-```
-请将我提供的家族信息整理成以下JSON格式：
-{
-  "generations": [
-    {
-      "title": "第X世",
-      "people": [
-        {
-          "id": "唯一标识符",
-          "name": "姓名",
-          "info": "详细信息",
-          "fatherId": "父亲ID",
-          "birthYear": 出生年份,
-          "deathYear": 逝世年份
-        }
-      ]
-    }
-  ]
-}
+- 族谱数据在 `config/family-data.json`，修改后即时生效、无需重启
+- 账号与站点设置存放在 `data/` 目录（`users.json`、`settings.json`），请勿提交到仓库
+- 对外访问建议走反向代理或 Cloudflare Tunnel；容器接入 `1panel-network` 时，隧道服务地址填 `http://familytree:3000`
 
-要求：
-1. 为每个人物生成唯一的id（如first-gen-1, second-gen-2等）
-2. 正确设置fatherId以建立父子关系
-3. 将人物按世代归类
-4. 在info字段包含配偶、事迹等信息
-5. 使用birthYear和deathYear分别记录出生和逝世年份（若有）
-6. 确保JSON格式有效且可直接导入系统使用
-```
+## 数据格式
 
-3. 将AI生成的JSON复制到`config/family-data.json`文件中
-4. 检查并调整生成的数据，确保关系准确、格式正确
-
-
-这种方式可以快速将非结构化的家族信息转换为系统所需的JSON格式，尤其适合数据量较大的情况。
-
-## 自定义与扩展
-
-- 调整 `config/family-data.json` 中的数据文件更新家族信息
-- 编辑 `.env.local` 文件更改配置和验证方式
-
-## 部署
-
-推荐使用 [Vercel 平台](https://vercel.com/new) 部署您的家族谱项目：
-
-1. 将代码推送到 GitHub/GitLab/Bitbucket
-2. 在 Vercel 上导入您的仓库
-3. 设置环境变量
-4. 部署
-
-## 相关服务
-
-**[FateMaster.AI](https://www.fatemaster.ai)** - AI八字算命网站，提供智能化命理分析服务。
-
-## 贡献
-
-欢迎提交 Pull Request 或创建 Issue 来改进这个项目。
+`config/family-data.json` 为 `generations` 数组：每一世包含 `title`（如「第一世」）与 `people`，成员以 `id` 标识，并通过父母、配偶等字段的 id 建立关系。可参考仓库内的示例数据。
 
 ## 许可
 
-MIT 
+MIT（沿用上游项目）
