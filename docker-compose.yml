@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        NEXT_PUBLIC_REQUIRE_AUTH: "true"
+        NEXT_PUBLIC_REQUIRE_AUTH: "false"
         NEXT_PUBLIC_FAMILY_NAME: "白"
     container_name: familytree
     restart: unless-stopped
@@ -15,7 +15,20 @@ services:
       - .env
     environment:
       - PORT=3000
-      - REQUIRE_AUTH=true
+      - CONFIG_DIR=/app/config
+      - REQUIRE_AUTH=false
+    # 容器加固：只读根文件系统、去掉全部 capabilities、禁止提权、资源上限
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/.next/cache:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 100
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
       interval: 30s

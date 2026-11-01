@@ -19,7 +19,6 @@ const defaultFamilyData: FamilyData = {
 
 // 缓存配置数据
 let authConfigCache: AuthConfig | null = null;
-let familyDataCache: FamilyData | null = null;
 
 // 在服务器端加载配置文件
 async function loadConfigOnServer<T>(filename: string, defaultConfig: T): Promise<T> {
@@ -36,7 +35,8 @@ async function loadConfigOnServer<T>(filename: string, defaultConfig: T): Promis
       import('path').then(m => m.default)
     ]);
     
-    const configDir = path.join(process.cwd(), 'config');
+    // 优先用环境变量 CONFIG_DIR（Docker 里固定为 /app/config），避免进程工作目录变化导致读不到数据
+    const configDir = process.env.CONFIG_DIR || path.join(process.cwd(), 'config');
     const filePath = path.join(configDir, filename);
     
     if (fs.existsSync(filePath)) {
@@ -84,11 +84,8 @@ export function getFamilyFullName(): string {
 }
 
 export async function getFamilyDataOnServer(): Promise<FamilyData> {
-  if (familyDataCache) return familyDataCache;
-  
-  const data = await loadConfigOnServer<FamilyData>('family-data.json', defaultFamilyData);
-  familyDataCache = data;
-  return data;
+  // 不缓存：数据文件修改后下一次请求即生效
+  return loadConfigOnServer<FamilyData>('family-data.json', defaultFamilyData);
 }
 
 // 客户端公开配置（只包含可以在客户端公开的信息）
