@@ -10,7 +10,8 @@ function getSecret(): string {
 }
 
 export function isAuthConfigured(): boolean {
-  return Boolean(process.env.FAMILY_PASSWORD && getSecret());
+  // 邮箱账号登录只需要签名密钥；FAMILY_PASSWORD 是旧口令登录的遗留，不再必需
+  return Boolean(getSecret());
 }
 
 export function checkPassword(input: string): boolean {
@@ -25,8 +26,8 @@ export function checkPassword(input: string): boolean {
   return crypto.timingSafeEqual(a, b);
 }
 
-export function issueToken(): string {
-  const payload = { sub: 'family', exp: Date.now() + TOKEN_TTL_MS };
+export function issueToken(subject = 'family'): string {
+  const payload = { sub: subject, exp: Date.now() + TOKEN_TTL_MS };
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', getSecret()).update(body).digest('base64url');
   return `${body}.${sig}`;
@@ -80,4 +81,23 @@ export function recordLoginAttempt(key: string): void {
 export function clientKey(request: Request): string {
   const fwd = request.headers.get('x-forwarded-for');
   return (fwd ? fwd.split(',')[0].trim() : '') || 'local';
+}
+
+// 验签并取出令牌主体（账号名或管理员标识），无效返回 null
+export function getTokenSubject(token: string | null | undefined): string | null {
+  if (!token || !getSecret()) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [body, sig] = parts;
+  const expected = crypto.createHmac('sha256', getSecret()).update(body).digest('base64url');
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (typeof payload.exp !== 'number' || Date.now() >= payload.exp) return null;
+    return typeof payload.sub === 'string' ? payload.sub : null;
+  } catch {
+    return null;
+  }
 }

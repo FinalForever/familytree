@@ -13,9 +13,9 @@ import { searchFamilyData, createFilteredFamilyData, SearchResult } from '@/util
 import { buildFamilyTree } from '@/utils/familyTree';
 import { AUTH_CONFIG } from '@/utils/constants';
 
-export default function HomeClient({ initialData }: { initialData: FamilyData }) {
+export default function HomeClient({ initialData, serverAuthed = false, registrationOpen = false }: { initialData: FamilyData; serverAuthed?: boolean; registrationOpen?: boolean }) {
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(serverAuthed);
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
   // 数据由服务端组件在请求时读取并注入，不再经客户端接口拉取（无可爬取的 JSON 接口）
@@ -85,14 +85,24 @@ export default function HomeClient({ initialData }: { initialData: FamilyData })
     setIsAuthenticated(true);
   }, []);
   
-  const handleLogout = useCallback(() => {
-    // 清除验证信息 - 使用常量
-    localStorage.removeItem(AUTH_CONFIG.STORAGE_KEYS.AUTH_TOKEN);
-    localStorage.removeItem(AUTH_CONFIG.STORAGE_KEYS.AUTH_TIME);
-    setIsAuthenticated(false);
+  const handleLogout = useCallback(async () => {
+    // 退出登录：清掉服务端会话 Cookie 后刷新页面，服务端会重新渲染登录页
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // 忽略网络错误，下面刷新后服务端仍会按无会话处理（Cookie 可能残留时手动过期）
+      document.cookie = 'ft_session=; path=/; max-age=0';
+    }
+    window.location.reload();
   }, []);
 
   useEffect(() => {
+    // 服务端已验过会话 Cookie 时直接放行，不再走本地令牌检查
+    if (serverAuthed) {
+      setIsAuthenticated(true);
+      setLoading(false);
+      return;
+    }
     // 始终假设需要登录验证 - 真实的验证会在服务器端处理
     
     // 检查是否已经验证过 - 使用常量
@@ -138,7 +148,7 @@ export default function HomeClient({ initialData }: { initialData: FamilyData })
 
   // 如果需要登录且未验证，显示登录表单
   if (requireAuth && !isAuthenticated) {
-    return <LoginForm onLoginSuccess={handleLoginSuccess} />;
+    return <LoginForm registrationOpen={registrationOpen} />;
   }
 
   // 已验证或不需要登录，显示家谱内容
