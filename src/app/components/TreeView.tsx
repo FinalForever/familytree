@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { FamilyData, Person } from '@/types/family';
-import { ChevronDownIcon, ChevronRightIcon, UserIcon, CalendarIcon } from '@heroicons/react/24/outline';
 import { highlightMatch } from '@/utils/search';
 import { ANIMATION_DELAYS, CSS_CLASSES } from '@/utils/constants';
 
@@ -25,50 +24,36 @@ const isPersonMatch = (person: Person, searchTerm: string, searchInInfo: boolean
   return nameMatch || !!infoMatch || yearMatch;
 };
 
-interface BandPerson {
-  person: Person;
-  father?: Person;
-  childCount: number;
-  sortKey: number[];
-  dataIndex: number;
+// —— 树状图布局常量 ——
+const NODE_W = 132;          // 节点卡片宽
+const NODE_H = 56;           // 节点卡片高
+const SLOT_W = 150;          // 每个叶子占的水平槽宽
+const ROW_H = 112;           // 每代（行）高度，含连线区
+const GUTTER = 96;           // 左侧世代标签栏宽
+const TOP_PAD = 10;
+const DEFAULT_EXPAND_DEPTH = 6; // 默认展开到第几层（0 起），更深的支系先折叠
+
+interface TreeModel {
+  byId: Map<string, Person>;
+  childrenOf: Map<string, string[]>;
+  parentOf: Map<string, string>;
+  roots: string[];
+  depthOf: Map<string, number>;
+  descCount: Map<string, number>;
+  genTitles: string[];
+  initialCollapsed: Set<string>;
 }
 
-interface Band {
-  title: string;
-  people: BandPerson[];
-}
-
-const cmpKey = (a: number[], b: number[]): number => {
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    const x = a[i] ?? -1;
-    const y = b[i] ?? -1;
-    if (x !== y) return x - y;
-  }
-  return 0;
-};
-
-// 世系表式排版：按数据里的「世」分带（同一世的人聚在一起），
-// 世内按支系路径排序——从始祖出发、沿每代兄弟序号组成的路径比较，
-// 保证同父的兄弟相邻、同一支系的人聚拢、长幼有序。
-// 旧做法是深度优先的嵌套列表：幼子要排在其兄长全部后代之后，
-// 人一多，第二世的幼子会被挤到上千人之后，看起来像排错了世。
-function buildBands(data: FamilyData): { bands: Band[]; genOf: Map<string, number> } {
+function buildModel(data: FamilyData): TreeModel {
   const byId = new Map<string, Person>();
-  const genOf = new Map<string, number>();
-  const dataIndexOf = new Map<string, number>();
-  let di = 0;
-  data.generations.forEach((g, gi) => {
+  data.generations.forEach((g) => {
     g.people.forEach((p) => {
-      if (p.id && !byId.has(p.id)) {
-        byId.set(p.id, p);
-        genOf.set(p.id, gi);
-        dataIndexOf.set(p.id, di++);
-      }
+      if (p.id && !byId.has(p.id)) byId.set(p.id, p);
     });
   });
 
   const childrenOf = new Map<string, string[]>();
+  const parentOf = new Map<string, string>();
   byId.forEach((_, id) => childrenOf.set(id, []));
   const roots: string[] = [];
   data.generations.forEach((g) => {
@@ -77,191 +62,279 @@ function buildBands(data: FamilyData): { bands: Band[]; genOf: Map<string, numbe
       const fid = p.fatherId;
       if (fid && fid !== p.id && byId.has(fid)) {
         childrenOf.get(fid)!.push(p.id);
+        parentOf.set(p.id, fid);
       } else {
         roots.push(p.id);
       }
     });
   });
 
-  // 从根出发给每个人算一条支系路径（每代的兄弟序号）
-  const keyOf = new Map<string, number[]>();
-  const visited = new Set<string>();
-  const walk = (id: string, path: number[]) => {
-    if (visited.has(id)) return;
-    visited.add(id);
-    keyOf.set(id, path);
-    childrenOf.get(id)!.forEach((cid, k) => walk(cid, [...path, k]));
-  };
-  roots.forEach((rid, r) => walk(rid, [r]));
-
-  const bands: Band[] = data.generations.map((g) => {
-    const seen = new Set<string>();
-    const people: BandPerson[] = [];
-    g.people.forEach((p) => {
-      if (!p.id || seen.has(p.id)) return;
-      seen.add(p.id);
-      const father = p.fatherId && p.fatherId !== p.id ? byId.get(p.fatherId) : undefined;
-      people.push({
-        person: p,
-        father,
-        childCount: childrenOf.get(p.id)?.length ?? 0,
-        sortKey: keyOf.get(p.id) ?? [Number.MAX_SAFE_INTEGER, dataIndexOf.get(p.id) ?? 0],
-        dataIndex: dataIndexOf.get(p.id) ?? 0,
-      });
+  const depthOf = new Map<string, number>();
+  const descCount = new Map<string, number>();
+  const calc = (id: string, depth: number, guard: Set<string>): number => {
+    if (guard.has(id)) return 0;
+    guard.add(id);
+    depthOf.set(id, depth);
+    let total = 0;
+    childrenOf.get(id)!.forEach((cid) => {
+      total += 1 + calc(cid, depth + 1, guard);
     });
-    people.sort((a, b) => cmpKey(a.sortKey, b.sortKey) || a.dataIndex - b.dataIndex);
-    return { title: g.title, people };
+    descCount.set(id, total);
+    return total;
+  };
+  roots.forEach((r) => calc(r, 0, new Set()));
+
+  const initialCollapsed = new Set<string>();
+  byId.forEach((_, id) => {
+    if ((childrenOf.get(id)?.length ?? 0) > 0 && (depthOf.get(id) ?? 0) >= DEFAULT_EXPAND_DEPTH) {
+      initialCollapsed.add(id);
+    }
   });
 
-  return { bands, genOf };
+  return {
+    byId,
+    childrenOf,
+    parentOf,
+    roots,
+    depthOf,
+    descCount,
+    genTitles: data.generations.map((g) => g.title),
+    initialCollapsed,
+  };
+}
+
+interface PlacedNode {
+  id: string;
+  person: Person;
+  depth: number;
+  cx: number;   // 中心 x
+  top: number;  // 卡片 top
+  hasChildren: boolean;
+  childCount: number;
+  descCount: number;
+  expanded: boolean;
 }
 
 export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewProps) {
-  const { bands, genOf } = useMemo(() => buildBands(data), [data]);
-  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
-  const [firstMatchId, setFirstMatchId] = useState<string | null>(null);
+  const model = useMemo(() => buildModel(data), [data]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(model.initialCollapsed);
   const [flashId, setFlashId] = useState<string | null>(null);
+  const [firstMatchId, setFirstMatchId] = useState<string | null>(null);
 
-  // 按世从早到晚找第一个搜索匹配项
+  // 数据变化时重置折叠状态
+  useEffect(() => {
+    setCollapsed(model.initialCollapsed);
+  }, [model]);
+
+  // 整齐树布局：叶子按顺序占槽，父节点居中于其所有子节点之上
+  const layout = useMemo(() => {
+    const placed = new Map<string, PlacedNode>();
+    let maxDepth = 0;
+    const place = (id: string, leftSlot: number, depth: number): number => {
+      const kids = model.childrenOf.get(id) ?? [];
+      const expanded = kids.length > 0 && !collapsed.has(id);
+      maxDepth = Math.max(maxDepth, depth);
+      let widthSlots: number;
+      let cx: number;
+      if (!expanded) {
+        widthSlots = 1;
+        cx = GUTTER + (leftSlot + 0.5) * SLOT_W;
+      } else {
+        let cur = leftSlot;
+        kids.forEach((cid) => {
+          cur += place(cid, cur, depth + 1);
+        });
+        widthSlots = Math.max(1, cur - leftSlot);
+        cx = GUTTER + (leftSlot + widthSlots / 2) * SLOT_W;
+      }
+      placed.set(id, {
+        id,
+        person: model.byId.get(id)!,
+        depth,
+        cx,
+        top: TOP_PAD + depth * ROW_H,
+        hasChildren: kids.length > 0,
+        childCount: kids.length,
+        descCount: model.descCount.get(id) ?? 0,
+        expanded,
+      });
+      return widthSlots;
+    };
+    let left = 0;
+    model.roots.forEach((rid, i) => {
+      if (i > 0) left += 1; // 多个根之间留一槽间隔
+      left += place(rid, left, 0);
+    });
+    const width = GUTTER + left * SLOT_W + 24;
+    const height = TOP_PAD + (maxDepth + 1) * ROW_H + 8;
+
+    // 连线（族谱折线：父节点向下引线，横贯各子节点中心，再分别垂直到子节点）
+    const paths: string[] = [];
+    placed.forEach((node) => {
+      if (!node.expanded) return;
+      const kids = (model.childrenOf.get(node.id) ?? [])
+        .map((cid) => placed.get(cid))
+        .filter((k): k is PlacedNode => !!k);
+      if (!kids.length) return;
+      const y0 = node.top + NODE_H;
+      const midY = y0 + (ROW_H - NODE_H) / 2;
+      let d = `M ${node.cx} ${y0} V ${midY}`;
+      if (kids.length > 1) {
+        d += ` M ${kids[0].cx} ${midY} H ${kids[kids.length - 1].cx}`;
+      }
+      kids.forEach((k) => {
+        d += ` M ${k.cx} ${midY} V ${k.top}`;
+      });
+      paths.push(d);
+    });
+
+    // 每行的世代标签
+    const rowLabels: { depth: number; title: string }[] = [];
+    for (let dpt = 0; dpt <= maxDepth; dpt++) {
+      rowLabels.push({ depth: dpt, title: model.genTitles[dpt] || `第${dpt + 1}层` });
+    }
+
+    return { nodes: Array.from(placed.values()), paths, width, height, maxDepth, rowLabels, totalShown: placed.size };
+  }, [model, collapsed]);
+
+  const toggleNode = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const scrollToId = (id: string) => {
+    window.setTimeout(() => {
+      const el = document.getElementById(`tree-node-${id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        setFlashId(id);
+        window.setTimeout(() => setFlashId((cur) => (cur === id ? null : cur)), ANIMATION_DELAYS.HIGHLIGHT_DURATION);
+      }
+    }, 80);
+  };
+
+  // 搜索：按世代顺序找第一个匹配项，展开其全部祖先并滚动定位
   useEffect(() => {
     if (!searchTerm) {
       setFirstMatchId(null);
       return;
     }
     let found: string | null = null;
-    for (const band of bands) {
-      for (const bp of band.people) {
-        if (isPersonMatch(bp.person, searchTerm, searchInInfo || false)) {
-          found = bp.person.id || null;
-          break;
+    outer: for (const g of data.generations) {
+      for (const p of g.people) {
+        if (p.id && isPersonMatch(p, searchTerm, searchInInfo || false)) {
+          found = p.id;
+          break outer;
         }
       }
-      if (found) break;
     }
     setFirstMatchId(found);
-  }, [searchTerm, searchInInfo, bands]);
-
-  const scrollToId = (id: string, genIdx?: number) => {
-    if (genIdx !== undefined) {
+    if (found) {
       setCollapsed((prev) => {
-        if (!prev.has(genIdx)) return prev;
         const next = new Set(prev);
-        next.delete(genIdx);
+        let cur = model.parentOf.get(found!);
+        while (cur) {
+          next.delete(cur);
+          cur = model.parentOf.get(cur);
+        }
+        next.delete(found!);
         return next;
       });
-    }
-    window.setTimeout(() => {
-      const el = document.getElementById(`tree-person-${id}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setFlashId(id);
-        window.setTimeout(() => setFlashId((cur) => (cur === id ? null : cur)), ANIMATION_DELAYS.HIGHLIGHT_DURATION);
-      }
-    }, 60);
-  };
-
-  // 第一个匹配项自动滚动定位
-  useEffect(() => {
-    if (firstMatchId) {
-      scrollToId(firstMatchId, genOf.get(firstMatchId));
+      scrollToId(found);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firstMatchId]);
-
-  const toggleBand = (gi: number) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(gi)) next.delete(gi);
-      else next.add(gi);
-      return next;
-    });
-  };
+  }, [searchTerm, searchInInfo, data, model]);
 
   return (
     <div className="max-w-7xl mx-auto px-4">
       <div className="bg-white rounded-lg shadow-sm p-6">
-        <h2 className="text-xl font-bold text-gray-800">家族树状图</h2>
-        <p className="text-xs text-gray-400 mt-1 mb-4">
-          按世排列：同一世的人聚在一起，世内按支系长幼排序；点击「父：某」可跳到父亲所在行。
+        <div className="flex flex-wrap items-center gap-3 mb-1">
+          <h2 className="text-xl font-bold text-gray-800">家族树状图</h2>
+          <div className="flex gap-2 ml-auto">
+            <button
+              type="button"
+              onClick={() => setCollapsed(new Set())}
+              className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50"
+            >
+              展开全部
+            </button>
+            <button
+              type="button"
+              onClick={() => setCollapsed(model.initialCollapsed)}
+              className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50"
+            >
+              收起深层支系
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mb-4">
+          自上而下的世系树：点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人；图太宽时可拖动底部横向滚动条。
         </p>
         <div className="tree-hscroll pb-3">
-          <div className="w-max min-w-full" style={{ minWidth: '760px' }}>
-            {bands.map((band, gi) => (
-              <div key={gi} className="mb-2">
-                <button
-                  type="button"
-                  onClick={() => toggleBand(gi)}
-                  className="flex items-center gap-2 w-full text-left py-2 border-b border-gray-200 hover:bg-gray-50 rounded-md px-1"
-                >
-                  {collapsed.has(gi) ? (
-                    <ChevronRightIcon className="h-4 w-4 text-gray-400" />
-                  ) : (
-                    <ChevronDownIcon className="h-4 w-4 text-gray-400" />
-                  )}
-                  <span className="font-bold text-gray-800">{band.title}</span>
-                  <span className="text-xs text-gray-400">{band.people.length} 人</span>
-                </button>
-                {!collapsed.has(gi) &&
-                  band.people.map((bp) => {
-                    const person = bp.person;
-                    const isFirst = person.id === firstMatchId;
-                    const isFlash = person.id === flashId || isFirst;
-                    return (
-                      <div
-                        key={person.id}
-                        id={`tree-person-${person.id}`}
-                        className={`flex items-start py-2 px-1 rounded-md transition-all duration-300 ${
-                          isFlash
-                            ? `${CSS_CLASSES.HIGHLIGHT.RING} ${CSS_CLASSES.HIGHLIGHT.RING_COLOR} ${CSS_CLASSES.HIGHLIGHT.BACKGROUND}`
-                            : ''
-                        }`}
-                      >
-                        <div className="bg-blue-50 p-1 rounded-md mr-2 mt-0.5 shrink-0">
-                          <UserIcon className="h-4 w-4 text-blue-600" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                            <span className="font-medium text-gray-800">
-                              <span dangerouslySetInnerHTML={{
-                                __html: searchTerm ? highlightMatch(person.name, searchTerm) : highlightMatch(person.name, '')
-                              }} />
-                            </span>
-                            {bp.father && (
-                              <button
-                                type="button"
-                                onClick={() => bp.father!.id && scrollToId(bp.father!.id, genOf.get(bp.father!.id))}
-                                className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
-                              >
-                                父：{bp.father.name}
-                              </button>
-                            )}
-                            {bp.childCount > 0 && (
-                              <span className="text-xs text-green-600">子嗣 {bp.childCount} 人</span>
-                            )}
-                            {(person.birthYear || person.deathYear) && (
-                              <span className="inline-flex items-center gap-1 text-gray-500 text-xs">
-                                <CalendarIcon className="h-3 w-3" />
-                                <span>
-                                  {person.birthYear}
-                                  {person.birthYear && person.deathYear && ' - '}
-                                  {person.deathYear && (person.birthYear ? person.deathYear : ` - ${person.deathYear}`)}
-                                </span>
-                              </span>
-                            )}
-                          </div>
-                          {person.info && (
-                            <p className="text-gray-600 text-sm mt-0.5 max-w-3xl whitespace-pre-line">
-                              <span dangerouslySetInnerHTML={{
-                                __html: (searchTerm && searchInInfo) ? highlightMatch(person.info, searchTerm) : highlightMatch(person.info, '')
-                              }} />
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+          <div className="relative" style={{ width: layout.width, height: layout.height }}>
+            <svg
+              className="absolute left-0 top-0 pointer-events-none"
+              width={layout.width}
+              height={layout.height}
+              aria-hidden="true"
+            >
+              {layout.paths.map((d, i) => (
+                <path key={i} d={d} fill="none" stroke="#cbd5e1" strokeWidth="1.5" />
+              ))}
+            </svg>
+            {layout.rowLabels.map((rl) => (
+              <div
+                key={rl.depth}
+                className="absolute text-[11px] leading-tight text-gray-400 pr-1"
+                style={{ left: 0, top: TOP_PAD + rl.depth * ROW_H + 6, width: GUTTER - 10 }}
+                title={rl.title}
+              >
+                <span className="line-clamp-2">{rl.title}</span>
               </div>
             ))}
+            {layout.nodes.map((node) => {
+              const isFlash = node.id === flashId || node.id === firstMatchId;
+              return (
+                <div
+                  key={node.id}
+                  id={`tree-node-${node.id}`}
+                  className={`absolute bg-white border rounded-lg shadow-sm px-2 py-1.5 text-center transition-all duration-300 ${
+                    isFlash
+                      ? `${CSS_CLASSES.HIGHLIGHT.RING} ${CSS_CLASSES.HIGHLIGHT.RING_COLOR} ${CSS_CLASSES.HIGHLIGHT.BACKGROUND}`
+                      : 'border-gray-200'
+                  }`}
+                  style={{ left: node.cx - NODE_W / 2, top: node.top, width: NODE_W, height: NODE_H }}
+                  title={node.person.name}
+                >
+                  <div className="font-medium text-gray-800 text-sm leading-5 line-clamp-2">
+                    <span dangerouslySetInnerHTML={{
+                      __html: searchTerm ? highlightMatch(node.person.name, searchTerm) : highlightMatch(node.person.name, '')
+                    }} />
+                  </div>
+                  {(node.person.birthYear || node.person.deathYear) && (
+                    <div className="text-[11px] text-gray-400 leading-4">
+                      {node.person.birthYear}
+                      {node.person.birthYear && node.person.deathYear && ' - '}
+                      {node.person.deathYear && (node.person.birthYear ? node.person.deathYear : ` - ${node.person.deathYear}`)}
+                    </div>
+                  )}
+                  {node.hasChildren && (
+                    <button
+                      type="button"
+                      onClick={() => toggleNode(node.id)}
+                      title={node.expanded ? '收起支系' : `展开支系（后代共 ${node.descCount} 人）`}
+                      className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 h-5 min-w-5 px-1 rounded-full border border-gray-300 bg-white text-[10px] leading-none text-gray-600 shadow-sm hover:bg-blue-50 hover:text-blue-700 z-10"
+                    >
+                      {node.expanded ? '−' : `+${node.childCount}`}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
