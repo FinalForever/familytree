@@ -29,6 +29,7 @@ body {
 .tree-hscroll {
   overflow: scroll;
   overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 #f1f5f9;
 }
