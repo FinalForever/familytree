@@ -229,6 +229,8 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
   const pctRef = useRef<HTMLSpanElement>(null);
   const zoomRef = useRef(1);
   const padRef = useRef({ l: 0, t: 0 });
+  const dragRef = useRef<{ x: number; y: number; sl: number; st: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
 
@@ -494,9 +496,45 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           </div>
         </div>
         <p className="text-xs text-gray-400 mb-4">
-          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），图框内可上下左右拖动平移；信息显示不全的卡片，悬停或点按可看全文气泡。
+          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），按住拖动平移；信息显示不全的卡片，悬停或点按可看全文气泡。
         </p>
-        <div className="tree-hscroll rounded-md" ref={scrollRef} style={{ height: 'min(80vh, 1200px)' }}>
+        <div
+          className="tree-hscroll rounded-md cursor-grab active:cursor-grabbing select-none"
+          ref={scrollRef}
+          style={{ height: 'min(80vh, 1200px)' }}
+          onPointerDown={(e) => {
+            if (e.pointerType !== 'mouse' || e.button !== 0) return;
+            const box = scrollRef.current;
+            if (!box) return;
+            dragRef.current = { x: e.clientX, y: e.clientY, sl: box.scrollLeft, st: box.scrollTop, moved: false };
+          }}
+          onPointerMove={(e) => {
+            const d = dragRef.current;
+            const box = scrollRef.current;
+            if (!d || !box) return;
+            const dx = e.clientX - d.x;
+            const dy = e.clientY - d.y;
+            if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
+            if (d.moved) {
+              box.scrollLeft = d.sl - dx;
+              box.scrollTop = d.st - dy;
+            }
+          }}
+          onPointerUp={() => {
+            if (dragRef.current?.moved) suppressClickRef.current = true;
+            dragRef.current = null;
+          }}
+          onPointerCancel={() => {
+            dragRef.current = null;
+          }}
+          onClickCapture={(e) => {
+            if (suppressClickRef.current) {
+              suppressClickRef.current = false;
+              e.stopPropagation();
+              e.preventDefault();
+            }
+          }}
+        >
           <div ref={sizeRef} className="relative" style={{ width: layout.width * zoomRef.current, height: layout.height * zoomRef.current }}>
             <div
               ref={canvasRef}
@@ -536,6 +574,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
                   }`}
                   style={{ left: node.cx - NODE_W / 2, top: node.top, width: NODE_W, height: NODE_H }}
                   onMouseEnter={(e) => {
+                    if (dragRef.current) return;
                     openPop(e, node, false);
                   }}
                   onMouseLeave={() => {
