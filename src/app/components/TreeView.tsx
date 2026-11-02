@@ -176,10 +176,18 @@ const findAllMatches = (person: Person, searchTerm: string, searchInInfo: boolea
   return matches;
 };
 
+// 计算一棵树的层级深度（根为 1）
+const depthOf = (p: Person): number =>
+  1 + (p.children && p.children.length > 0 ? Math.max(...p.children.map(depthOf)) : 0);
+
 export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewProps) {
   const [firstMatchId, setFirstMatchId] = useState<string | null>(null);
   // 找到第一代人物作为树的根节点
   const rootPeople = data.generations[0]?.people || [];
+  // 内容最小宽度按树的深度计算：每深一层，缩进约 40px（ml-6 24px + 边框/内距 16px），
+  // 再给节点内容留 560px。这样深层节点不会被挤成窄条，内容真实变宽后横向滚动条才会出现。
+  const maxDepth = rootPeople.reduce((m, p) => Math.max(m, depthOf(p)), 1);
+  const contentMinWidth = 560 + maxDepth * 40;
   
   // 找到第一个匹配项
   useEffect(() => {
@@ -203,17 +211,19 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     <div className="max-w-7xl mx-auto px-4">
       <div className="bg-white rounded-lg shadow-sm p-6">
         <h2 className="text-xl font-bold text-gray-800 mb-6">家族树状图</h2>
-        <div className="overflow-x-auto">
-          {rootPeople.map((person, index) => (
-            <TreeNode 
-              key={index} 
-              person={person} 
-              level={0} 
-              searchTerm={searchTerm} 
-              searchInInfo={searchInInfo}
-              firstMatchId={firstMatchId}
-            />
-          ))}
+        <div className="tree-hscroll pb-3">
+          <div className="w-max min-w-full" style={{ minWidth: `${contentMinWidth}px` }}>
+            {rootPeople.map((person, index) => (
+              <TreeNode
+                key={index}
+                person={person}
+                level={0}
+                searchTerm={searchTerm}
+                searchInInfo={searchInInfo}
+                firstMatchId={firstMatchId}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
