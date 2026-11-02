@@ -228,6 +228,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
   const canvasRef = useRef<HTMLDivElement>(null);
   const pctRef = useRef<HTMLSpanElement>(null);
   const zoomRef = useRef(1);
+  const padRef = useRef({ l: 0, t: 0 });
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
 
@@ -239,15 +240,19 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     const s0 = zoomRef.current;
     const s1 = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
     if (s1 === s0) return;
-    // 锚点：当前视口点 (vx, vy) 下的图内坐标，缩放前后必须仍落在该视口点
-    const cx = (box.scrollLeft + vx) / s0;
-    const cy = (box.scrollTop + vy) / s0;
+    // 锚点：当前视口点 (vx, vy) 下的图内坐标，缩放前后必须仍落在该视口点。
+    // 图内坐标在滚动内容中的位置要加上四周的补偿边距 pad（见下方边距初始化），
+    // 否则贴边时理想滚动量超出可滚范围被浏览器截断，锚点就会漂移。
+    const pl = padRef.current.l;
+    const pt = padRef.current.t;
+    const cx = (box.scrollLeft + vx - pl) / s0;
+    const cy = (box.scrollTop + vy - pt) / s0;
     zoomRef.current = s1;
     cv.style.transform = `scale(${s1})`;
     size.style.width = `${layoutRef.current.width * s1}px`;
     size.style.height = `${layoutRef.current.height * s1}px`;
-    box.scrollLeft = cx * s1 - vx;
-    box.scrollTop = cy * s1 - vy;
+    box.scrollLeft = pl + cx * s1 - vx;
+    box.scrollTop = pt + cy * s1 - vy;
     if (pctRef.current) pctRef.current.textContent = `${Math.round(s1 * 100)}%`;
   };
 
@@ -304,7 +309,36 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     box.addEventListener('touchend', onTouchEnd);
     box.addEventListener('touchcancel', onTouchEnd);
     box.addEventListener('gesturestart', onGestureStart);
+
+    // 四周补偿边距：给缩放后的画布外围留一整屏空白，
+    // 这样手指/光标贴到图的任一边角时，理想滚动位置都不会被截断。
+    const size = sizeRef.current;
+    let padInit = false;
+    const applyPad = () => {
+      if (!size) return;
+      const nl = box.clientWidth;
+      const nt = box.clientHeight;
+      const ol = padRef.current.l;
+      const ot = padRef.current.t;
+      if (nl === ol && nt === ot && padInit) return;
+      size.style.padding = `${nt}px ${nl}px ${nt}px ${nl}px`;
+      if (!padInit) {
+        padRef.current = { l: nl, t: nt };
+        box.scrollLeft = nl;
+        box.scrollTop = nt;
+        padInit = true;
+      } else {
+        padRef.current = { l: nl, t: nt };
+        box.scrollLeft += nl - ol;
+        box.scrollTop += nt - ot;
+      }
+    };
+    applyPad();
+    const ro = new ResizeObserver(applyPad);
+    ro.observe(box);
+
     return () => {
+      ro.disconnect();
       box.removeEventListener('wheel', onWheel);
       box.removeEventListener('touchstart', onTouchStart);
       box.removeEventListener('touchmove', onTouchMove);
@@ -402,7 +436,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           <div ref={sizeRef} className="relative" style={{ width: layout.width * zoomRef.current, height: layout.height * zoomRef.current }}>
             <div
               ref={canvasRef}
-              className="absolute left-0 top-0"
+              className="relative"
               style={{ width: layout.width, height: layout.height, transform: `scale(${zoomRef.current})`, transformOrigin: '0 0' }}
             >
             <svg
