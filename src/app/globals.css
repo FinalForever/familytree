@@ -27,12 +27,14 @@ body {
 
 /* 树状视图的横向滚动条：常显、带样式，方便拖动左右查看 */
 .tree-hscroll {
-  overflow-x: scroll;
+  overflow: scroll;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 #f1f5f9;
 }
 .tree-hscroll::-webkit-scrollbar {
   height: 10px;
+  width: 10px;
 }
 .tree-hscroll::-webkit-scrollbar-track {
   background: #f1f5f9;

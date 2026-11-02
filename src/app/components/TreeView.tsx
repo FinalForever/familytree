@@ -396,9 +396,9 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           </div>
         </div>
         <p className="text-xs text-gray-400 mb-4">
-          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），单指/滚动条拖动平移。
+          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），图框内可上下左右拖动平移。
         </p>
-        <div className="tree-hscroll pb-3" ref={scrollRef}>
+        <div className="tree-hscroll rounded-md" ref={scrollRef} style={{ height: 'min(80vh, 1200px)' }}>
           <div ref={sizeRef} className="relative" style={{ width: layout.width * zoomRef.current, height: layout.height * zoomRef.current }}>
             <div
               ref={canvasRef}
