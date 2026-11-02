@@ -229,6 +229,18 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
   const pctRef = useRef<HTMLSpanElement>(null);
   const zoomRef = useRef(1);
   const padRef = useRef({ l: 0, t: 0 });
+  const labelLayerRef = useRef<HTMLDivElement>(null);
+  const labelInnerRef = useRef<HTMLDivElement>(null);
+  // 世代标尺冻结在图框左缘：横向滚动不带走它，纵向位置随画布滚动/缩放同步
+  const syncLabels = () => {
+    const box = scrollRef.current;
+    const inner = labelInnerRef.current;
+    const layer = labelLayerRef.current;
+    if (!box || !inner || !layer) return;
+    const sc = zoomRef.current;
+    inner.style.transform = `translateY(${padRef.current.t - box.scrollTop}px) scale(${sc})`;
+    layer.style.width = `${Math.max(GUTTER * sc, 40)}px`;
+  };
   const dragRef = useRef<{ x: number; y: number; sl: number; st: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef(false);
   const layoutRef = useRef(layout);
@@ -255,6 +267,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     size.style.height = `${layoutRef.current.height * s1}px`;
     box.scrollLeft = pl + cx * s1 - vx;
     box.scrollTop = pt + cy * s1 - vy;
+    syncLabels();
     if (pctRef.current) pctRef.current.textContent = `${Math.round(s1 * 100)}%`;
   };
 
@@ -336,7 +349,11 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
       }
     };
     applyPad();
-    const ro = new ResizeObserver(applyPad);
+    syncLabels();
+    const ro = new ResizeObserver(() => {
+      applyPad();
+      syncLabels();
+    });
     ro.observe(box);
 
     return () => {
@@ -350,6 +367,11 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    syncLabels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout]);
 
   // —— 全文气泡：卡片 info 被截断（显示不全）时才出现；能完整显示的不出 ——
   const [pop, setPop] = useState<{
@@ -496,11 +518,13 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           </div>
         </div>
         <p className="text-xs text-gray-400 mb-4">
-          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），按住拖动平移；信息显示不全的卡片，悬停或点按可看全文气泡。
+          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），按住拖动平移；左侧世代标尺固定不动，横向滑远了也能对照世代；信息显示不全的卡片，悬停或点按可看全文气泡。
         </p>
+        <div className="relative">
         <div
           className="tree-hscroll rounded-md cursor-grab active:cursor-grabbing select-none"
           ref={scrollRef}
+          onScroll={() => syncLabels()}
           style={{ height: 'min(80vh, 1200px)' }}
           onPointerDown={(e) => {
             if (e.pointerType !== 'mouse' || e.button !== 0) return;
@@ -551,16 +575,6 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
                 <path key={i} d={d} fill="none" stroke="#cbd5e1" strokeWidth="1.5" />
               ))}
             </svg>
-            {layout.rowLabels.map((rl) => (
-              <div
-                key={rl.depth}
-                className="absolute text-[11px] leading-tight text-gray-400 pr-1"
-                style={{ left: 0, top: TOP_PAD + rl.depth * ROW_H + 6, width: GUTTER - 10 }}
-                title={rl.title}
-              >
-                <span className="line-clamp-2">{rl.title}</span>
-              </div>
-            ))}
             {layout.nodes.map((node) => {
               const isFlash = node.id === flashId || node.id === firstMatchId;
               return (
@@ -623,6 +637,25 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
             })}
             </div>
           </div>
+        </div>
+        <div
+          ref={labelLayerRef}
+          className="pointer-events-none absolute left-0 top-0 bottom-0 overflow-hidden border-r border-gray-100 bg-white/95"
+          style={{ width: GUTTER }}
+          aria-hidden="true"
+        >
+          <div ref={labelInnerRef} className="relative" style={{ transformOrigin: '0 0', width: GUTTER, height: layout.height }}>
+            {layout.rowLabels.map((rl) => (
+              <div
+                key={rl.depth}
+                className="absolute text-[11px] leading-tight text-gray-400 pr-1"
+                style={{ left: 0, top: TOP_PAD + rl.depth * ROW_H + 6, width: GUTTER - 10 }}
+              >
+                <span className="line-clamp-2">{rl.title}</span>
+              </div>
+            ))}
+          </div>
+        </div>
         </div>
       </div>
 
