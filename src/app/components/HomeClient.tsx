@@ -10,7 +10,6 @@ import { QueueListIcon, Squares2X2Icon, ArrowRightOnRectangleIcon } from '@heroi
 import { getPublicConfig } from '@/utils/config';
 import { FamilyData } from '@/types/family';
 import { searchFamilyData, createFilteredFamilyData, SearchResult } from '@/utils/search';
-import { buildFamilyTree } from '@/utils/familyTree';
 import { AUTH_CONFIG } from '@/utils/constants';
 
 export default function HomeClient({ initialData, serverAuthed = false, registrationOpen = false, familyName = '白' }: { initialData: FamilyData; serverAuthed?: boolean; registrationOpen?: boolean; familyName?: string }) {
@@ -37,21 +36,6 @@ export default function HomeClient({ initialData, serverAuthed = false, registra
   const publicConfig = useMemo(() => getPublicConfig(), []);
   const requireAuth = publicConfig.isAuthRequired;
   const familyFullName = `${familyName}氏`;
-
-  // 使用useMemo缓存树状结构数据的构建
-  const treeData = useMemo(() => {
-    if (dataLoading || dataError || !familyData.generations.length) {
-      return {
-        generations: [
-          {
-            title: "家族树",
-            people: []
-          }
-        ]
-      };
-    }
-    return buildFamilyTree(familyData);
-  }, [familyData, dataLoading, dataError]);
 
   // 使用useMemo缓存过滤后的家族数据
   const filteredFamilyData = useMemo(() => {
@@ -250,8 +234,8 @@ export default function HomeClient({ initialData, serverAuthed = false, registra
             searchInInfo={searchFilters.searchInInfo}
           />
         ) : (
-          <TreeView 
-            data={treeData} 
+          <TreeView
+            data={familyData}
             searchTerm={searchTerm}
             searchInInfo={searchFilters.searchInInfo}
           />
