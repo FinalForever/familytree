@@ -217,51 +217,50 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     }, 80);
   };
 
-  // —— 缩放：鼠标滚轮以光标为锚点缩放，触屏双指捏合缩放，按钮亦可 ——
+  // —— 缩放（命令式同步实现，手势事件里直接落 DOM，保证跟手）——
+  // 旧实现把缩放值放在 React 状态里、靠渲染后 effect 回调滚动位置对锚点；
+  // 双指连续手势下状态与滚动互相追赶，锚点算错，整图乱跑。现改为：
+  // 每次手势事件内同步完成「算锚点 → 改 transform/占位尺寸 → 改滚动位置」，无异步环节。
   const MIN_SCALE = 0.15;
   const MAX_SCALE = 3;
-  const [scale, setScale] = useState(1);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const scaleRef = useRef(1);
-  const anchorRef = useRef<{ cx: number; cy: number; vx: number; vy: number } | null>(null);
-  scaleRef.current = scale;
+  const sizeRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const pctRef = useRef<HTMLSpanElement>(null);
+  const zoomRef = useRef(1);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
 
-  // 缩放生效后，把锚点（缩放前光标/双指中心下的图内坐标）重新对准原位置
-  useEffect(() => {
+  const applyZoomAt = (next: number, vx: number, vy: number) => {
     const box = scrollRef.current;
-    const a = anchorRef.current;
-    if (box && a) {
-      box.scrollLeft = a.cx * scale - a.vx;
-      box.scrollTop = a.cy * scale - a.vy;
-      anchorRef.current = null;
-    }
-  }, [scale]);
-
-  const applyZoom = (next: number, vx: number, vy: number) => {
-    const box = scrollRef.current;
-    if (!box) return;
-    const cur = scaleRef.current;
-    const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
-    if (clamped === cur) return;
-    anchorRef.current = {
-      cx: (box.scrollLeft + vx) / cur,
-      cy: (box.scrollTop + vy) / cur,
-      vx,
-      vy,
-    };
-    setScale(clamped);
+    const size = sizeRef.current;
+    const cv = canvasRef.current;
+    if (!box || !size || !cv) return;
+    const s0 = zoomRef.current;
+    const s1 = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+    if (s1 === s0) return;
+    // 锚点：当前视口点 (vx, vy) 下的图内坐标，缩放前后必须仍落在该视口点
+    const cx = (box.scrollLeft + vx) / s0;
+    const cy = (box.scrollTop + vy) / s0;
+    zoomRef.current = s1;
+    cv.style.transform = `scale(${s1})`;
+    size.style.width = `${layoutRef.current.width * s1}px`;
+    size.style.height = `${layoutRef.current.height * s1}px`;
+    box.scrollLeft = cx * s1 - vx;
+    box.scrollTop = cy * s1 - vy;
+    if (pctRef.current) pctRef.current.textContent = `${Math.round(s1 * 100)}%`;
   };
 
   const zoomStep = (factor: number) => {
     const box = scrollRef.current;
     if (!box) return;
-    applyZoom(scaleRef.current * factor, box.clientWidth / 2, box.clientHeight / 2);
+    applyZoomAt(zoomRef.current * factor, box.clientWidth / 2, box.clientHeight / 2);
   };
 
   const resetZoom = () => {
     const box = scrollRef.current;
     if (!box) return;
-    applyZoom(1, box.clientWidth / 2, box.clientHeight / 2);
+    applyZoomAt(1, box.clientWidth / 2, box.clientHeight / 2);
   };
 
   useEffect(() => {
@@ -273,7 +272,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
       const rect = box.getBoundingClientRect();
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
       const factor = Math.exp(-e.deltaY * unit * 0.0016);
-      applyZoom(scaleRef.current * factor, e.clientX - rect.left, e.clientY - rect.top);
+      applyZoomAt(zoomRef.current * factor, e.clientX - rect.left, e.clientY - rect.top);
     };
 
     let pinch: { d0: number; s0: number } | null = null;
@@ -281,7 +280,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
       Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
-        pinch = { d0: touchDist(e.touches), s0: scaleRef.current };
+        pinch = { d0: touchDist(e.touches), s0: zoomRef.current };
         e.preventDefault();
       }
     };
@@ -291,7 +290,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
         const rect = box.getBoundingClientRect();
         const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
         const my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
-        applyZoom(pinch.s0 * (touchDist(e.touches) / pinch.d0), mx, my);
+        applyZoomAt(pinch.s0 * (touchDist(e.touches) / pinch.d0), mx, my);
       }
     };
     const onTouchEnd = (e: TouchEvent) => {
@@ -358,8 +357,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
               <button
                 type="button"
                 onClick={() => zoomStep(1 / 1.25)}
-                disabled={scale <= MIN_SCALE}
-                className="px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                className="px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
                 title="缩小"
               >
                 −
@@ -370,13 +368,12 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
                 className="px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 border-x border-gray-200 min-w-12"
                 title="恢复 100%"
               >
-                {Math.round(scale * 100)}%
+                <span ref={pctRef}>100%</span>
               </button>
               <button
                 type="button"
                 onClick={() => zoomStep(1.25)}
-                disabled={scale >= MAX_SCALE}
-                className="px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                className="px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
                 title="放大"
               >
                 +
@@ -402,10 +399,11 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），单指/滚动条拖动平移。
         </p>
         <div className="tree-hscroll pb-3" ref={scrollRef}>
-          <div className="relative" style={{ width: layout.width * scale, height: layout.height * scale }}>
+          <div ref={sizeRef} className="relative" style={{ width: layout.width * zoomRef.current, height: layout.height * zoomRef.current }}>
             <div
+              ref={canvasRef}
               className="absolute left-0 top-0"
-              style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}
+              style={{ width: layout.width, height: layout.height, transform: `scale(${zoomRef.current})`, transformOrigin: '0 0' }}
             >
             <svg
               className="absolute left-0 top-0 pointer-events-none"
