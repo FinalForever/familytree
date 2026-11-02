@@ -42,8 +42,10 @@ npm run dev
 
 ```bash
 cp .env.local.example .env         # 填写 AUTH_SECRET 与 ADMIN_PASSWORD
-docker compose up -d --build
+docker compose up -d
 ```
+镜像由 GitHub Actions 预构建并发布在 GHCR（`ghcr.io/finalforever/familytree:latest`），`up` 时自动拉取，无需本地构建；amd64 与 arm64 均支持。想改源码自行构建的话，见 `docker-compose.yml` 里的注释。
+
 
 主要环境变量（`.env`）：
 

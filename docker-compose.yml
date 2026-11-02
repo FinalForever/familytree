@@ -1,10 +1,13 @@
 services:
   familytree:
-    build:
-      context: .
-      args:
-        NEXT_PUBLIC_REQUIRE_AUTH: "true"
-        NEXT_PUBLIC_FAMILY_NAME: "白"
+    # 直接拉取 GitHub 预构建镜像，无需本地打包（amd64 / arm64 均可）
+    image: ghcr.io/finalforever/familytree:latest
+    # 如改了源码想自行构建：删掉上面一行，取消下面四行注释，并把 up 命令换成 docker compose up -d --build
+    # build:
+    #   context: .
+    #   args:
+    #     NEXT_PUBLIC_REQUIRE_AUTH: "true"
+    #     NEXT_PUBLIC_FAMILY_NAME: "白"
     container_name: familytree
     restart: unless-stopped
     ports:
