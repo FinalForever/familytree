@@ -349,6 +349,70 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // —— 全文气泡：卡片 info 被截断（显示不全）时才出现；能完整显示的不出 ——
+  const [pop, setPop] = useState<{
+    id: string; name: string; gen: string; years: string; info: string;
+    x: number; y: number; above: boolean; pinned: boolean;
+  } | null>(null);
+
+  // 返回是否真的打开了气泡（未截断则不开）。气泡渲染在缩放画布之外、按视口坐标定位，不随缩放变形。
+  const openPop = (
+    e: { currentTarget: HTMLElement },
+    node: { id: string; person: Person; depth: number },
+    pinned: boolean
+  ): boolean => {
+    const card = e.currentTarget;
+    const infoEl = card.querySelector('[data-info]') as HTMLElement | null;
+    if (!infoEl) return false;
+    if (infoEl.scrollHeight <= infoEl.clientHeight + 1) return false; // 显示得下，不出气泡
+    const person = node.person;
+    const rect = card.getBoundingClientRect();
+    const half = 168;
+    const x = Math.min(Math.max(rect.left + rect.width / 2, half + 8), window.innerWidth - half - 8);
+    const above = rect.top > 300;
+    setPop({
+      id: person.id,
+      name: person.name,
+      gen: model.genTitles[node.depth] || '',
+      years:
+        person.birthYear || person.deathYear
+          ? `${person.birthYear || ''}${person.birthYear && person.deathYear ? ' - ' : ''}${person.deathYear || ''}`
+          : '',
+      info: person.info || '',
+      x,
+      y: above ? rect.top - 8 : rect.bottom + 8,
+      above,
+      pinned,
+    });
+    return true;
+  };
+
+  // 气泡打开期间：滚动/缩放/改窗口/Esc 都会让位置失效，直接关闭；钉住的气泡点别处也关
+  useEffect(() => {
+    if (!pop) return;
+    const close = () => setPop(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('[data-pop]') || t.closest(`#tree-node-${pop.id}`)) return;
+      close();
+    };
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('wheel', close, { capture: true, passive: true });
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    if (pop.pinned) window.addEventListener('pointerdown', onDown, true);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('wheel', close, { capture: true });
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onDown, true);
+    };
+  }, [pop]);
+
   // 搜索：按世代顺序找第一个匹配项，展开其全部祖先并滚动定位
   useEffect(() => {
     if (!searchTerm) {
@@ -430,7 +494,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           </div>
         </div>
         <p className="text-xs text-gray-400 mb-4">
-          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），图框内可上下左右拖动平移。
+          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），图框内可上下左右拖动平移；信息显示不全的卡片，悬停或点按可看全文气泡。
         </p>
         <div className="tree-hscroll rounded-md" ref={scrollRef} style={{ height: 'min(80vh, 1200px)' }}>
           <div ref={sizeRef} className="relative" style={{ width: layout.width * zoomRef.current, height: layout.height * zoomRef.current }}>
@@ -471,7 +535,20 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
                       : 'border-gray-200'
                   }`}
                   style={{ left: node.cx - NODE_W / 2, top: node.top, width: NODE_W, height: NODE_H }}
-                  title={node.person.info ? `${node.person.name}\n${node.person.info}` : node.person.name}
+                  onMouseEnter={(e) => {
+                    openPop(e, node, false);
+                  }}
+                  onMouseLeave={() => {
+                    setPop((cur) => (cur && !cur.pinned && cur.id === node.id ? null : cur));
+                  }}
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('button')) return; // 折叠圆钮不触发气泡
+                    if (pop && pop.pinned && pop.id === node.id) {
+                      setPop(null);
+                      return;
+                    }
+                    openPop(e, node, true);
+                  }}
                 >
                   <div className="font-medium text-gray-800 text-sm leading-5 line-clamp-2">
                     <span dangerouslySetInnerHTML={{
@@ -486,7 +563,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
                     </div>
                   )}
                   {node.person.info && (
-                    <div className="text-[11px] text-gray-500 leading-4 mt-1 pt-1 border-t border-gray-100 line-clamp-4 whitespace-pre-line text-left">
+                    <div data-info className="text-[11px] text-gray-500 leading-4 mt-1 pt-1 border-t border-gray-100 line-clamp-4 whitespace-pre-line text-left">
                       <span dangerouslySetInnerHTML={{
                         __html: (searchTerm && searchInInfo) ? highlightMatch(node.person.info, searchTerm) : highlightMatch(node.person.info, '')
                       }} />
@@ -509,6 +586,32 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           </div>
         </div>
       </div>
+
+      {pop && (
+        <div
+          data-pop
+          className="fixed z-50 w-[320px] max-w-[86vw] rounded-xl border border-amber-200 bg-white p-3 shadow-xl text-left"
+          style={{
+            left: pop.x,
+            top: pop.y,
+            transform: `translate(-50%, ${pop.above ? '-100%' : '0'})`,
+            pointerEvents: pop.pinned ? 'auto' : 'none',
+          }}
+          onClick={() => setPop(null)}
+        >
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-sm font-bold text-gray-900">{pop.name}</span>
+            {pop.gen && (
+              <span className="shrink-0 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700">{pop.gen}</span>
+            )}
+          </div>
+          {pop.years && <div className="mt-0.5 text-[11px] text-gray-500">{pop.years}</div>}
+          <p className="mt-1.5 max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-700">
+            {pop.info}
+          </p>
+          {pop.pinned && <div className="mt-1.5 text-right text-[10px] text-gray-400">点任意处关闭</div>}
+        </div>
+      )}
     </div>
   );
 }
