@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { FamilyData, Person } from '@/types/family';
 import { highlightMatch } from '@/utils/search';
 import { ANIMATION_DELAYS, CSS_CLASSES } from '@/utils/constants';
@@ -217,6 +217,105 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     }, 80);
   };
 
+  // —— 缩放：鼠标滚轮以光标为锚点缩放，触屏双指捏合缩放，按钮亦可 ——
+  const MIN_SCALE = 0.15;
+  const MAX_SCALE = 3;
+  const [scale, setScale] = useState(1);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scaleRef = useRef(1);
+  const anchorRef = useRef<{ cx: number; cy: number; vx: number; vy: number } | null>(null);
+  scaleRef.current = scale;
+
+  // 缩放生效后，把锚点（缩放前光标/双指中心下的图内坐标）重新对准原位置
+  useEffect(() => {
+    const box = scrollRef.current;
+    const a = anchorRef.current;
+    if (box && a) {
+      box.scrollLeft = a.cx * scale - a.vx;
+      box.scrollTop = a.cy * scale - a.vy;
+      anchorRef.current = null;
+    }
+  }, [scale]);
+
+  const applyZoom = (next: number, vx: number, vy: number) => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const cur = scaleRef.current;
+    const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+    if (clamped === cur) return;
+    anchorRef.current = {
+      cx: (box.scrollLeft + vx) / cur,
+      cy: (box.scrollTop + vy) / cur,
+      vx,
+      vy,
+    };
+    setScale(clamped);
+  };
+
+  const zoomStep = (factor: number) => {
+    const box = scrollRef.current;
+    if (!box) return;
+    applyZoom(scaleRef.current * factor, box.clientWidth / 2, box.clientHeight / 2);
+  };
+
+  const resetZoom = () => {
+    const box = scrollRef.current;
+    if (!box) return;
+    applyZoom(1, box.clientWidth / 2, box.clientHeight / 2);
+  };
+
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = box.getBoundingClientRect();
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+      const factor = Math.exp(-e.deltaY * unit * 0.0016);
+      applyZoom(scaleRef.current * factor, e.clientX - rect.left, e.clientY - rect.top);
+    };
+
+    let pinch: { d0: number; s0: number } | null = null;
+    const touchDist = (t: TouchList) =>
+      Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        pinch = { d0: touchDist(e.touches), s0: scaleRef.current };
+        e.preventDefault();
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (pinch && e.touches.length === 2) {
+        e.preventDefault();
+        const rect = box.getBoundingClientRect();
+        const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        const my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+        applyZoom(pinch.s0 * (touchDist(e.touches) / pinch.d0), mx, my);
+      }
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) pinch = null;
+    };
+    const onGestureStart = (e: Event) => e.preventDefault();
+
+    box.addEventListener('wheel', onWheel, { passive: false });
+    box.addEventListener('touchstart', onTouchStart, { passive: false });
+    box.addEventListener('touchmove', onTouchMove, { passive: false });
+    box.addEventListener('touchend', onTouchEnd);
+    box.addEventListener('touchcancel', onTouchEnd);
+    box.addEventListener('gesturestart', onGestureStart);
+    return () => {
+      box.removeEventListener('wheel', onWheel);
+      box.removeEventListener('touchstart', onTouchStart);
+      box.removeEventListener('touchmove', onTouchMove);
+      box.removeEventListener('touchend', onTouchEnd);
+      box.removeEventListener('touchcancel', onTouchEnd);
+      box.removeEventListener('gesturestart', onGestureStart);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 搜索：按世代顺序找第一个匹配项，展开其全部祖先并滚动定位
   useEffect(() => {
     if (!searchTerm) {
@@ -254,7 +353,35 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex flex-wrap items-center gap-3 mb-1">
           <h2 className="text-xl font-bold text-gray-800">家族树状图</h2>
-          <div className="flex gap-2 ml-auto">
+          <div className="flex flex-wrap gap-2 ml-auto items-center">
+            <div className="flex items-center rounded-md border border-gray-200 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => zoomStep(1 / 1.25)}
+                disabled={scale <= MIN_SCALE}
+                className="px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                title="缩小"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                onClick={resetZoom}
+                className="px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 border-x border-gray-200 min-w-12"
+                title="恢复 100%"
+              >
+                {Math.round(scale * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={() => zoomStep(1.25)}
+                disabled={scale >= MAX_SCALE}
+                className="px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                title="放大"
+              >
+                +
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setCollapsed(new Set())}
@@ -272,10 +399,14 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           </div>
         </div>
         <p className="text-xs text-gray-400 mb-4">
-          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人；图太宽时可拖动底部横向滚动条。
+          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），单指/滚动条拖动平移。
         </p>
-        <div className="tree-hscroll pb-3">
-          <div className="relative" style={{ width: layout.width, height: layout.height }}>
+        <div className="tree-hscroll pb-3" ref={scrollRef}>
+          <div className="relative" style={{ width: layout.width * scale, height: layout.height * scale }}>
+            <div
+              className="absolute left-0 top-0"
+              style={{ width: layout.width, height: layout.height, transform: `scale(${scale})`, transformOrigin: '0 0' }}
+            >
             <svg
               className="absolute left-0 top-0 pointer-events-none"
               width={layout.width}
@@ -342,6 +473,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
       </div>
