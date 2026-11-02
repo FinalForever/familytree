@@ -25,10 +25,10 @@ const isPersonMatch = (person: Person, searchTerm: string, searchInInfo: boolean
 };
 
 // —— 树状图布局常量 ——
-const NODE_W = 132;          // 节点卡片宽
-const NODE_H = 56;           // 节点卡片高
-const SLOT_W = 150;          // 每个叶子占的水平槽宽
-const ROW_H = 112;           // 每代（行）高度，含连线区
+const NODE_W = 176;          // 节点卡片宽
+const NODE_H = 128;          // 节点卡片高（含 info 区）
+const SLOT_W = 196;          // 每个叶子占的水平槽宽
+const ROW_H = 184;           // 每代（行）高度，含连线区
 const GUTTER = 96;           // 左侧世代标签栏宽
 const TOP_PAD = 10;
 const DEFAULT_EXPAND_DEPTH = 6; // 默认展开到第几层（0 起），更深的支系先折叠
@@ -135,17 +135,17 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
       const expanded = kids.length > 0 && !collapsed.has(id);
       maxDepth = Math.max(maxDepth, depth);
       let widthSlots: number;
-      let cx: number;
+      // 左对齐：父节点永远位于其支系最左槽的正上方（与原版逐层右移的排法一致），
+      // 展开任何支系只会把右侧内容推远，左侧已排好的部分纹丝不动。
+      const cx = GUTTER + (leftSlot + 0.5) * SLOT_W;
       if (!expanded) {
         widthSlots = 1;
-        cx = GUTTER + (leftSlot + 0.5) * SLOT_W;
       } else {
         let cur = leftSlot;
         kids.forEach((cid) => {
           cur += place(cid, cur, depth + 1);
         });
         widthSlots = Math.max(1, cur - leftSlot);
-        cx = GUTTER + (leftSlot + widthSlots / 2) * SLOT_W;
       }
       placed.set(id, {
         id,
@@ -272,7 +272,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           </div>
         </div>
         <p className="text-xs text-gray-400 mb-4">
-          自上而下的世系树：点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人；图太宽时可拖动底部横向滚动条。
+          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人；图太宽时可拖动底部横向滚动条。
         </p>
         <div className="tree-hscroll pb-3">
           <div className="relative" style={{ width: layout.width, height: layout.height }}>
@@ -308,7 +308,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
                       : 'border-gray-200'
                   }`}
                   style={{ left: node.cx - NODE_W / 2, top: node.top, width: NODE_W, height: NODE_H }}
-                  title={node.person.name}
+                  title={node.person.info ? `${node.person.name}\n${node.person.info}` : node.person.name}
                 >
                   <div className="font-medium text-gray-800 text-sm leading-5 line-clamp-2">
                     <span dangerouslySetInnerHTML={{
@@ -320,6 +320,13 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
                       {node.person.birthYear}
                       {node.person.birthYear && node.person.deathYear && ' - '}
                       {node.person.deathYear && (node.person.birthYear ? node.person.deathYear : ` - ${node.person.deathYear}`)}
+                    </div>
+                  )}
+                  {node.person.info && (
+                    <div className="text-[11px] text-gray-500 leading-4 mt-1 pt-1 border-t border-gray-100 line-clamp-4 whitespace-pre-line text-left">
+                      <span dangerouslySetInnerHTML={{
+                        __html: (searchTerm && searchInInfo) ? highlightMatch(node.person.info, searchTerm) : highlightMatch(node.person.info, '')
+                      }} />
                     </div>
                   )}
                   {node.hasChildren && (
