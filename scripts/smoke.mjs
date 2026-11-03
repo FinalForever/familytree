@@ -688,6 +688,10 @@ console.log('阶段 K：坏记录拒绝 / 恢复旧备份再迁移 / 恰好 1000
   try {
     const reg = await postJson(srv2.base, '/api/auth/register', { username: 'first', password: 'password123' });
     check('恢复前注册成功（对照）', reg.status === 200, `实际 ${reg.status}`);
+    // 关键一步：带 Cookie 访问首页，真实加载到带 id 的账号记录——旧实现的一次性迁移
+    // 状态只有在这一步之后才算真正置起来，少了它，后面的恢复测试对旧实现也成立、等于白测
+    const firstHome = await getHome(srv2.base, cookieOf(reg, 'ft_session')?.value);
+    check('恢复前首页可访问（对照，已加载带 id 的记录）', firstHome.text.includes(markerName));
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.scryptSync('password123', salt, 64).toString('hex');
     const legacy = [{ username: 'restored', salt, hash, createdAt: Date.now(), tokenVersion: 0 }];
@@ -700,6 +704,35 @@ console.log('阶段 K：坏记录拒绝 / 恢复旧备份再迁移 / 恰好 1000
     check('恢复的记录已被补上 id 并写回', typeof after[0]?.id === 'string' && after[0].id.length > 0);
   } finally {
     await srv2.stop();
+  }
+
+  // K1 扩展：用户名规范化/唯一性 + 数值有限性（同进程逐个换文件验，loadUsers 每次现读）
+  const srv5 = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const usersPath = path.join(srv5.dir, 'data', 'users.json');
+    const rec = (username, extra = {}) => ({
+      username,
+      salt: 'aa'.repeat(16),
+      hash: 'bb'.repeat(64),
+      createdAt: Date.now(),
+      tokenVersion: 0,
+      ...extra,
+    });
+    const cases = [
+      ['规范化后重名（两条 alice）', JSON.stringify([rec('alice'), rec('alice')])],
+      ['未规范化用户名（Alice）', JSON.stringify([rec('Alice')])],
+      ['tokenVersion 为 1e400（Infinity）', '[{"username":"infuser","salt":"' + 'aa'.repeat(16) + '","hash":"' + 'bb'.repeat(64) + '","createdAt":1700000000000,"tokenVersion":1e400}]'],
+    ];
+    let caseIdx = 0;
+    for (const [label, content] of cases) {
+      caseIdx += 1;
+      fs.writeFileSync(usersPath, content);
+      const reg = await postJson(srv5.base, '/api/auth/register', { username: `probe${caseIdx}`, password: 'password123' });
+      check(`${label}：注册返回 5xx`, reg.status >= 500, `实际 ${reg.status}`);
+      check(`${label}：文件一字节未被改写`, fs.readFileSync(usersPath, 'utf8') === content);
+    }
+  } finally {
+    await srv5.stop();
   }
 
   // K3：吊销表恰好 10000 条（乙案语义：程序可达成的合法状态）→ 重启后健康、会话可用
@@ -722,6 +755,36 @@ console.log('阶段 K：坏记录拒绝 / 恢复旧备份再迁移 / 恰好 1000
     }
   } finally {
     await srv3.stop(true).catch(() => undefined);
+  }
+
+  // K4：运行时满额边界——从 9999 条出发，真实登出写入第 10000 条应成功；
+  // 再登出另一枚有效令牌应被拒绝（500）并进入故障态（登录转 503）
+  const srv7 = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  const dirK4 = srv7.dir;
+  let edgeTok1;
+  let edgeTok2;
+  try {
+    const r1 = await postJson(srv7.base, '/api/auth/register', { username: 'edge1', password: 'password123' });
+    edgeTok1 = cookieOf(r1, 'ft_session')?.value;
+    const r2 = await postJson(srv7.base, '/api/auth/register', { username: 'edge2', password: 'password123' });
+    edgeTok2 = cookieOf(r2, 'ft_session')?.value;
+  } finally {
+    await srv7.stop(true);
+  }
+  const fill = {};
+  const fillExp = Date.now() + 3600_000;
+  for (let i = 0; i < 9999; i += 1) fill[i.toString(16).padStart(64, '0')] = fillExp;
+  fs.writeFileSync(path.join(dirK4, 'data', 'revoked-tokens.json'), JSON.stringify(fill));
+  const srv8 = await startServer({ dir: dirK4, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const out1 = await postJson(srv8.base, '/api/auth/logout', {}, { cookie: `ft_session=${edgeTok1}` });
+    check('第 10000 条吊销写入成功', out1.status === 200, `实际 ${out1.status}`);
+    const out2 = await postJson(srv8.base, '/api/auth/logout', {}, { cookie: `ft_session=${edgeTok2}` });
+    check('第 10001 次登出被拒绝 500', out2.status === 500, `实际 ${out2.status}`);
+    const login = await postJson(srv8.base, '/api/auth', { username: 'edge1', password: 'password123' });
+    check('满额故障态后登录返回 503', login.status === 503, `实际 ${login.status}`);
+  } finally {
+    await srv8.stop();
   }
 }
 

@@ -59,11 +59,20 @@ export function loadUsers(): UserRecord[] {
     console.error('账号文件格式异常（不是数组），拒绝一切账号读写（保护原文件不被覆盖）');
     throw new Error('账号存储已损坏');
   }
+  const seenNames = new Set<string>();
   for (const u of parsed) {
     if (!isValidUserRecord(u)) {
       console.error('账号文件中有结构不完整的记录，拒绝一切账号读写（保护原文件不被覆盖），请修复 users.json');
       throw new Error('账号存储已损坏');
     }
+    // 规范化后唯一：两条归一同名的记录，查找永远只命中第一条，另一条等于被埋掉，
+    // 写操作还会把这局面原样落盘固化——按损坏处理，不自动改名、不改写原文件
+    const key = normalizeUsername(u.username);
+    if (seenNames.has(key)) {
+      console.error('账号文件中有规范化后重名的账号，拒绝一切账号读写（保护原文件不被覆盖），请修复 users.json');
+      throw new Error('账号存储已损坏');
+    }
+    seenNames.add(key);
   }
   ensureUserIds(parsed);
   return parsed;
@@ -72,19 +81,26 @@ export function loadUsers(): UserRecord[] {
 // 单条记录的结构校验：只验顶层是数组还不够——字段缺失的记录混在表里，轻则该账号永远
 // 登不上、注册等写操作还会把坏数据原样落盘，重则记录是 null 时读到就抛错。任何一条
 // 不合格都按文件损坏处理。只查必填字段与类型，不拒绝未知的新字段（向后兼容）。
+// 用户名还须符合注册规则且已是规范形态：查找与查重都按 normalizeUsername（去空格+小写）
+// 比对，文件里若躺着「Alice」，它既登不上、又会放行再注册一个「alice」把局面固化。
+// 数值须有限：JSON 的 1e400 会被解析成 Infinity（typeof 仍是 number），签发令牌序列化时
+// 又变回 null——校验页面按 0 比对永远对不上，表现为登录成功却进不了首页。
 function isValidUserRecord(u: unknown): u is UserRecord {
   if (!u || typeof u !== 'object') return false;
   const r = u as Record<string, unknown>;
   return (
     typeof r.username === 'string' &&
-    r.username.length > 0 &&
+    isValidUsername(r.username) &&
+    r.username === normalizeUsername(r.username) &&
     typeof r.salt === 'string' &&
     r.salt.length > 0 &&
     typeof r.hash === 'string' &&
     r.hash.length > 0 &&
     typeof r.createdAt === 'number' &&
+    Number.isFinite(r.createdAt) &&
     (r.id === undefined || (typeof r.id === 'string' && r.id.length > 0)) &&
-    (r.tokenVersion === undefined || typeof r.tokenVersion === 'number')
+    (r.tokenVersion === undefined ||
+      (typeof r.tokenVersion === 'number' && Number.isSafeInteger(r.tokenVersion) && r.tokenVersion >= 0))
   );
 }
 
