@@ -144,12 +144,16 @@ export function revokeToken(token: string | null | undefined): 'revoked' | 'inva
   const now = Date.now();
   for (const [k, exp] of revokedTokens) if (exp <= now) revokedTokens.delete(k);
   if (revokedTokens.size >= MAX_REVOKED_ENTRIES) {
-    console.error(`吊销表已达硬上限 ${MAX_REVOKED_ENTRIES} 条，拒绝新增吊销（不淘汰未过期记录），请排查异常注销流量`);
+    // 达上限与写失败同口径：进入全局故障态——吊销存储已不可信，继续签发新会话只会扩大不一致
+    revokedStoreBroken = true;
+    console.error(`吊销表已达硬上限 ${MAX_REVOKED_ENTRIES} 条，进入 fail-closed 故障态（不淘汰未过期记录）：会话验证全部拒绝、登录/注册返回 503，请排查异常注销流量并重启服务`);
     return 'failed';
   }
   revokedTokens.set(fp, payload.exp);
   if (!persistRevoked()) {
     revokedTokens.delete(fp); // 回滚内存登记，保持与磁盘一致
+    revokedStoreBroken = true; // 写盘失败即进故障态：会话验证全部拒绝、签发入口统一 503，直到重启恢复
+    console.error('吊销表写盘失败，进入 fail-closed 故障态：会话验证全部拒绝、登录/注册返回 503，请检查 data 卷后重启服务');
     return 'failed';
   }
   return 'revoked';

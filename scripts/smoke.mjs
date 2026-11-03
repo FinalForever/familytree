@@ -6,6 +6,7 @@
 //       REGISTRATION_OPEN=false 压过后台设置、父子成环数据回退不死循环、
 //       吊销落盘重启不复活、空白/过短签名密钥被拒、并发注册不丢号不重名、慢发完整请求体不误杀。
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -287,8 +288,8 @@ console.log('阶段 A：Cookie / 口令上限 / 请求体 / 限流键 / 令牌�
       await srv2.stop();
     }
 
-    // 把管理员令牌留给阶段 B 验证口令轮换
-    globalThis.__adminTokenA = adminToken;
+    // 注：这里的管理员令牌已在上面登出吊销，不能拿去验「口令轮换失效」——
+    // 轮换断言在阶段 B 用同目录的仍有效令牌单独验（否则吊销与轮换两个机制分不清）
   } finally {
     await srv.stop(true).catch(() => undefined);
   }
@@ -297,26 +298,45 @@ console.log('阶段 A：Cookie / 口令上限 / 请求体 / 限流键 / 令牌�
 // ---------- 阶段 B：env 强制关注册 + 管理员口令轮换 ----------
 console.log('阶段 B：REGISTRATION_OPEN=false 压过后台设置 / 管理员口令轮换');
 {
-  const srv = await startServer({
+  const srv0 = await startServer({
     settings: { registrationOpen: true },
     data: familyData,
-    env: { ADMIN_PASSWORD: ADMIN_B, REGISTRATION_OPEN: 'false' },
+    env: { ADMIN_PASSWORD: ADMIN_A, REGISTRATION_OPEN: 'false' },
   });
   try {
-    const reg = await postJson(srv.base, '/api/auth/register', { username: 'lateuser', password: 'password123' });
+    const reg = await postJson(srv0.base, '/api/auth/register', { username: 'lateuser', password: 'password123' });
     check('后台开着但 env=false 时注册仍 403', reg.status === 403, `实际 ${reg.status}`);
+  } finally {
+    await srv0.stop();
+  }
 
-    const cross = await fetch(srv.base + '/api/admin/registration', {
-      headers: { cookie: `ft_admin=${globalThis.__adminTokenA}` },
+  // 口令轮换：同一数据目录，先拿一枚「仍有效、从未登出」的管理员令牌并验它可用，
+  // 再同目录重启换口令——这样旧令牌失效只能归因于轮换本身，不与吊销机制混淆
+  const srv1 = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  const dirB = srv1.dir;
+  let liveAdminToken;
+  try {
+    const login = await postJson(srv1.base, '/api/admin/login', { password: ADMIN_A });
+    liveAdminToken = cookieOf(login, 'ft_admin')?.value;
+    const ok = await fetch(srv1.base + '/api/admin/registration', {
+      headers: { cookie: `ft_admin=${liveAdminToken}` },
+    });
+    check('轮换前管理员令牌有效（对照）', ok.status === 200, `实际 ${ok.status}`);
+  } finally {
+    await srv1.stop(true);
+  }
+  const srv2 = await startServer({ dir: dirB, env: { ADMIN_PASSWORD: ADMIN_B } });
+  try {
+    const cross = await fetch(srv2.base + '/api/admin/registration', {
+      headers: { cookie: `ft_admin=${liveAdminToken}` },
     });
     check('管理员口令轮换后旧管理员令牌失效 401', cross.status === 401, `实际 ${cross.status}`);
-
-    const oldLogin = await postJson(srv.base, '/api/admin/login', { password: ADMIN_A });
+    const oldLogin = await postJson(srv2.base, '/api/admin/login', { password: ADMIN_A });
     check('旧管理员口令被拒 401', oldLogin.status === 401, `实际 ${oldLogin.status}`);
-    const newLogin = await postJson(srv.base, '/api/admin/login', { password: ADMIN_B });
+    const newLogin = await postJson(srv2.base, '/api/admin/login', { password: ADMIN_B });
     check('新管理员口令可登录', newLogin.status === 200, `实际 ${newLogin.status}`);
   } finally {
-    await srv.stop();
+    await srv2.stop();
   }
 }
 
@@ -473,7 +493,9 @@ console.log('阶段 G：吊销存储 fail-closed（损坏/写失败/无效令牌
     const badOut = await postJson(srv3.base, '/api/auth/logout', {}, { cookie: `ft_session=${t2}` });
     check('写盘失败时注销返回 500', badOut.status === 500, `实际 ${badOut.status}`);
     const home = await getHome(srv3.base, t2);
-    check('注销失败后令牌保持有效（未假吊销）', home.text.includes(markerName));
+    check('写失败进入故障态后令牌被全局拒绝', !home.text.includes(markerName));
+    const relogin = await postJson(srv3.base, '/api/auth', { username: 'gtwo2', password: 'password123' });
+    check('写失败进入故障态后登录返回 503', relogin.status === 503, `实际 ${relogin.status}`);
   } finally {
     await srv3.stop();
   }
@@ -583,6 +605,63 @@ console.log('阶段 I：删号重建复活 / 吊销超限加载');
     }
   } finally {
     await srvB.stop(true).catch(() => undefined);
+  }
+}
+
+// ---------- 阶段 J：账号文件损坏保护 + 迁移写回失败 ----------
+console.log('阶段 J：账号文件损坏保护 / 迁移写回失败');
+{
+  // J1：users.json 损坏后，一切账号读写回 5xx、拒绝写盘，原文件一字节不动
+  const srv = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const adminLogin = await postJson(srv.base, '/api/admin/login', { password: ADMIN_A });
+    const adminToken = cookieOf(adminLogin, 'ft_admin')?.value;
+    const reg = await postJson(srv.base, '/api/auth/register', { username: 'juser', password: 'password123' });
+    check('损坏前注册成功（对照）', reg.status === 200, `实际 ${reg.status}`);
+    const usersPath = path.join(srv.dir, 'data', 'users.json');
+    const garbage = '账号文件损坏{{{not-json';
+    fs.writeFileSync(usersPath, garbage);
+    const reg2 = await postJson(srv.base, '/api/auth/register', { username: 'juser2', password: 'password123' });
+    check('损坏后注册返回 5xx', reg2.status >= 500, `实际 ${reg2.status}`);
+    const login = await postJson(srv.base, '/api/auth', { username: 'juser', password: 'password123' });
+    check('损坏后登录返回 5xx（不是 401）', login.status >= 500, `实际 ${login.status}`);
+    const create = await postJson(
+      srv.base,
+      '/api/admin/users',
+      { username: 'juser3', password: 'password123' },
+      { cookie: `ft_admin=${adminToken}` }
+    );
+    check('损坏后管理员建号返回 5xx', create.status >= 500, `实际 ${create.status}`);
+    const pw = await postJson(
+      srv.base,
+      '/api/admin/users/password',
+      { username: 'juser', password: 'newpassword1' },
+      { cookie: `ft_admin=${adminToken}` }
+    );
+    check('损坏后管理员改密返回 5xx', pw.status >= 500, `实际 ${pw.status}`);
+    const del = await delJson(srv.base, '/api/admin/users', { username: 'juser' }, { cookie: `ft_admin=${adminToken}` });
+    check('损坏后管理员删号返回 5xx', del.status >= 500, `实际 ${del.status}`);
+    const home = await getHome(srv.base, cookieOf(reg, 'ft_session')?.value);
+    check('损坏后首页返回 500（不静默装作已登出）', home.status === 500, `实际 ${home.status}`);
+    check('损坏的账号文件一字节未被覆盖', fs.readFileSync(usersPath, 'utf8') === garbage);
+  } finally {
+    await srv.stop();
+  }
+
+  // J2：老账号（无 id）+ 写回通道被堵（users.json.tmp 被同名目录占位，root 下也写不进去）：
+  // 迁移失败时登录回 5xx、不发 Cookie，不发「后续永远验不过」的假会话
+  const srv2 = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync('password123', salt, 64).toString('hex');
+    const legacy = [{ username: 'legacy', salt, hash, createdAt: Date.now(), tokenVersion: 0 }];
+    fs.writeFileSync(path.join(srv2.dir, 'data', 'users.json'), JSON.stringify(legacy));
+    fs.mkdirSync(path.join(srv2.dir, 'data', 'users.json.tmp'));
+    const login = await postJson(srv2.base, '/api/auth', { username: 'legacy', password: 'password123' });
+    check('迁移写回失败时登录返回 5xx', login.status >= 500, `实际 ${login.status}`);
+    check('迁移写回失败时不发 Cookie', !cookieOf(login, 'ft_session'));
+  } finally {
+    await srv2.stop();
   }
 }
 

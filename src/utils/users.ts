@@ -33,21 +33,39 @@ function usersFile(): string {
   return path.join(dir, 'users.json');
 }
 
+// 加载账号表，三态严格区分（数据保护优先）：
+//   文件不存在 → 空表（首次运行）；
+//   损坏 / 不是数组 / 读取失败 → 抛错。绝不能把损坏当空表：后续注册、建号会把
+//   「空表+新账号」整个写回去，把原账号文件冲掉。抛错后各入口统一回 5xx、拒绝写盘，
+//   等人工修复文件；文件恢复后下一次加载即自愈，不必重启。
 export function loadUsers(): UserRecord[] {
+  const file = usersFile();
+  let raw: string;
   try {
-    const file = usersFile();
-    if (!fs.existsSync(file)) return [];
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!Array.isArray(parsed)) return [];
-    ensureUserIds(parsed);
-    return parsed;
-  } catch {
-    return [];
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
+    console.error('账号文件读取失败，拒绝一切账号读写（保护原文件不被覆盖）:', error);
+    throw new Error('账号存储读取失败');
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.error('账号文件 JSON 损坏，拒绝一切账号读写（保护原文件不被覆盖），请修复 users.json');
+    throw new Error('账号存储已损坏');
+  }
+  if (!Array.isArray(parsed)) {
+    console.error('账号文件格式异常（不是数组），拒绝一切账号读写（保护原文件不被覆盖）');
+    throw new Error('账号存储已损坏');
+  }
+  ensureUserIds(parsed);
+  return parsed;
 }
 
-// 老账号记录补 id（一次性迁移）：整段同步执行、不会被并发请求打断；写回成功才置标志，
-// 失败则下次加载重试（避免同一账号在不同请求里拿到不同 id）
+// 老账号记录补 id（一次性迁移）：整段同步执行、不会被并发请求打断；写回成功才置标志。
+// 写回失败直接抛错（由 loadUsers 的调用方回 5xx）：若带着内存里临时生成的 id 继续签发 Cookie，
+// 后续请求重新加载时生成的又是另一批 id，会话永远验不过——宁可明确报错，不发假会话。
 let userIdsMigrated = false;
 function ensureUserIds(users: UserRecord[]): void {
   if (userIdsMigrated) return;
@@ -61,7 +79,8 @@ function ensureUserIds(users: UserRecord[]): void {
     saveUsers(users);
     userIdsMigrated = true;
   } catch (error) {
-    console.error('账号 id 迁移写回失败，下次加载重试:', error);
+    console.error('账号 id 迁移写回失败，拒绝本次账号读写:', error);
+    throw new Error('账号存储写入失败');
   }
 }
 

@@ -17,14 +17,27 @@ function unauthorized() {
   );
 }
 
+// 账号存储故障（文件损坏/不可写等）：loadUsers 会抛错，这里统一转成 500，绝不带病写盘
+function storeError(error: unknown) {
+  console.error('账号管理操作失败:', error);
+  return NextResponse.json(
+    { success: false, message: '账号存储故障，请稍后再试' },
+    { status: 500 }
+  );
+}
+
 // 账号列表（只回账号名与创建时间，不回哈希）
 export async function GET(request: Request) {
   if (!isAdminRequest(request)) return unauthorized();
-  const users = loadUsers().map((u) => ({
-    username: u.username,
-    createdAt: u.createdAt,
-  }));
-  return NextResponse.json({ success: true, users });
+  try {
+    const users = loadUsers().map((u) => ({
+      username: u.username,
+      createdAt: u.createdAt,
+    }));
+    return NextResponse.json({ success: true, users });
+  } catch (error) {
+    return storeError(error);
+  }
 }
 
 // 指定账号密码新建账号
@@ -59,21 +72,25 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  if (findUser(username)) {
-    return NextResponse.json(
-      { success: false, message: '该账号已存在' },
-      { status: 409 }
-    );
-  }
+  try {
+    if (findUser(username)) {
+      return NextResponse.json(
+        { success: false, message: '该账号已存在' },
+        { status: 409 }
+      );
+    }
 
-  const user = await createUser(username, password);
-  if (!user) {
-    return NextResponse.json(
-      { success: false, message: '该账号已存在' },
-      { status: 409 }
-    );
+    const user = await createUser(username, password);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: '该账号已存在' },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ success: true, username: user.username });
+  } catch (error) {
+    return storeError(error);
   }
-  return NextResponse.json({ success: true, username: user.username });
 }
 
 // 删除账号
@@ -88,11 +105,15 @@ export async function DELETE(request: Request) {
   }
   const body = parsed.body;
   const username = typeof body?.username === 'string' ? body.username : '';
-  if (!username || !(await deleteUser(username))) {
-    return NextResponse.json(
-      { success: false, message: '账号不存在' },
-      { status: 404 }
-    );
+  try {
+    if (!username || !(await deleteUser(username))) {
+      return NextResponse.json(
+        { success: false, message: '账号不存在' },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return storeError(error);
   }
-  return NextResponse.json({ success: true });
 }

@@ -34,11 +34,20 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  if (!username || !(await setUserPassword(username, password))) {
+  try {
+    if (!username || !(await setUserPassword(username, password))) {
+      return NextResponse.json(
+        { success: false, message: '账号不存在' },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    // 账号存储故障（文件损坏等）时 loadUsers 抛错：回 500，绝不带病写盘
+    console.error('管理员改密失败:', error);
     return NextResponse.json(
-      { success: false, message: '账号不存在' },
-      { status: 404 }
+      { success: false, message: '账号存储故障，请稍后再试' },
+      { status: 500 }
     );
   }
-  return NextResponse.json({ success: true });
 }
