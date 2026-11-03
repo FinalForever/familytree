@@ -12,11 +12,19 @@ on:
 
 jobs:
   claude:
+    # 只对仓库所有者本人发起的事件启动（纵深防御：严格限定谁能触发 Claude 执行）
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (
+        (github.event_name == 'issue_comment' && github.event.comment.user.login == 'FinalForever') ||
+        (github.event_name == 'pull_request_review_comment' && github.event.comment.user.login == 'FinalForever') ||
+        (github.event_name == 'pull_request_review' && github.event.review.user.login == 'FinalForever') ||
+        (github.event_name == 'issues' && github.event.issue.user.login == 'FinalForever')
+      ) && (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -29,7 +37,6 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 1
-
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@4845bacbb38b3c4b15d948f035349786f678e068 # v1 (v1.0.267)
@@ -37,14 +44,11 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # 只把仓库所有者本人的评论喂给 Claude，收窄提示注入面
           include_comments_by_actor: "FinalForever"
-          
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
             actions: read
-
-          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
+          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions in CLAUDE.md
           # prompt: 'Update the pull request description to include a summary of changes.'
-
           # Optional: Add claude_args to customize behavior and configuration
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://docs.anthropic.com/en/docs/claude-code/sdk#command-line for available options
