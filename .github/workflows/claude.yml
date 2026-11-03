@@ -14,12 +14,7 @@ jobs:
   claude:
     # 只对仓库所有者本人发起的事件启动（纵深防御：严格限定谁能触发 Claude 执行）
     if: |
-      (
-        (github.event_name == 'issue_comment' && github.event.comment.user.login == 'FinalForever') ||
-        (github.event_name == 'pull_request_review_comment' && github.event.comment.user.login == 'FinalForever') ||
-        (github.event_name == 'pull_request_review' && github.event.review.user.login == 'FinalForever') ||
-        (github.event_name == 'issues' && github.event.issue.user.login == 'FinalForever')
-      ) && (
+      github.actor == 'FinalForever' && (
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
@@ -44,7 +39,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # 只把仓库所有者本人的评论喂给 Claude，收窄提示注入面
-                    include_comments_by_actor: "FinalForever"
+          include_comments_by_actor: "FinalForever"
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
