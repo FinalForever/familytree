@@ -14,7 +14,7 @@ jobs:
   claude:
     # 只对仓库所有者本人发起的事件启动（纵深防御：严格限定谁能触发 Claude 执行）
     if: |
-      github.actor == 'FinalForever' && (
+      github.actor == 'FinalForever' && github.triggering_actor == 'FinalForever' && (
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
