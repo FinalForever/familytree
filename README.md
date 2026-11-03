@@ -64,6 +64,10 @@ docker compose up -d
 
 `config/family-data.json` 为 `generations` 数组：每一世包含 `title`（如「第一世」）与 `people`，成员以 `id` 标识，并通过父母、配偶等字段的 id 建立关系。可参考仓库内的示例数据。
 
+## 致谢
+
+本项目源于上游开源项目 [qiaoshouqing/familytree](https://github.com/qiaoshouqing/familytree)，最初正是从它 fork 而来。感谢原作者把这套族谱网站以 MIT 许可开源，提供了族谱可视化的核心思路与基础代码，本仓库才得以站在这个起点上，完成之后的安全加固与账号化改造，并独立维护至今。特此致谢。
+
 ## 许可
 
 MIT（沿用上游项目）
@@ -137,6 +141,10 @@ Data and accounts:
 ## Data format
 
 `config/family-data.json` holds a `generations` array: each generation has a `title` (e.g. "Generation 1") and `people`; members carry an `id` and reference parents/spouses by id. See the sample data in the repository.
+
+## Acknowledgments
+
+This project began as a fork of the open-source project [qiaoshouqing/familytree](https://github.com/qiaoshouqing/familytree). Many thanks to its author for releasing this family tree website under the MIT License: the upstream code provided the core idea of the genealogy visualization and the foundation on which the security hardening and account-based rework in this repository were built. This repository is now maintained independently, with sincere gratitude for the work that made it possible.
 
 ## License
 
