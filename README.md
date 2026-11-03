@@ -6,7 +6,7 @@
 
 ## 功能
 
-- 多代族谱可视化展示（树形图 + 世代列表），成员关系链接与个人信息详情
+- 多代族谱可视化展示（世系树图 + 世代列表）：树图可缩放、拖动平移，支系可折叠展开，每行有世代标尺，搜索时自动展开命中者的祖先链；成员关系链接与个人信息详情
 - 按姓名、简介等信息搜索，匹配高亮
 - 账号 + 密码登录后才能查看，未登录时不下发任何族谱数据
 - 开放注册（管理员可在后台随时关闭）
@@ -80,7 +80,7 @@ A family tree visualization website built with [Next.js](https://nextjs.org). Th
 
 ## Features
 
-- Multi-generation family tree visualization (graph view + generation lists) with relationship links and member details
+- Multi-generation family tree visualization (interactive tree graph + generation lists): zoomable, drag to pan, collapsible branches, a generation ruler on every row, and search auto-expands the match's ancestor chain; with relationship links and member details
 - Search across names and biographies with match highlighting
 - Account + password sign-in required; no genealogy data is sent to anonymous visitors
 - Optional open registration (the admin can turn it off at any time)
