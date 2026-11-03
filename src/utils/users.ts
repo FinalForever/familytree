@@ -98,6 +98,8 @@ function isValidUserRecord(u: unknown): u is UserRecord {
     r.hash.length > 0 &&
     typeof r.createdAt === 'number' &&
     Number.isFinite(r.createdAt) &&
+    r.createdAt > 0 &&
+    r.createdAt <= 8640000000000000 && // JS Date 能表示的最大毫秒数，超出就是无效日期（后台列表会渲染出 Invalid Date）
     (r.id === undefined || (typeof r.id === 'string' && r.id.length > 0)) &&
     (r.tokenVersion === undefined ||
       (typeof r.tokenVersion === 'number' && Number.isSafeInteger(r.tokenVersion) && r.tokenVersion >= 0))
@@ -230,8 +232,15 @@ export async function setUserPassword(username: string, password: string): Promi
     if (!user) return false;
     user.salt = crypto.randomBytes(16).toString('hex');
     user.hash = (await scryptAsync(password, user.salt, 64)).toString('hex');
-    // 改密即让此前签发的所有会话令牌失效
-    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    // 改密即让此前签发的所有会话令牌失效。版本号到顶（安全整数上限）时不能再 +1：
+    // 超出安全整数范围的值下次加载会被判成损坏记录。改为轮换账号世代 id 并把版本归零——
+    // 换 id 本身就让全部旧令牌失效（uid 对不上），失效效果与版本递增等同
+    if ((user.tokenVersion ?? 0) >= Number.MAX_SAFE_INTEGER) {
+      user.id = crypto.randomUUID();
+      user.tokenVersion = 0;
+    } else {
+      user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    }
     saveUsers(users);
     return true;
   });

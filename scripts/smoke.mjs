@@ -722,6 +722,7 @@ console.log('阶段 K：坏记录拒绝 / 恢复旧备份再迁移 / 恰好 1000
       ['规范化后重名（两条 alice）', JSON.stringify([rec('alice'), rec('alice')])],
       ['未规范化用户名（Alice）', JSON.stringify([rec('Alice')])],
       ['tokenVersion 为 1e400（Infinity）', '[{"username":"infuser","salt":"' + 'aa'.repeat(16) + '","hash":"' + 'bb'.repeat(64) + '","createdAt":1700000000000,"tokenVersion":1e400}]'],
+      ['createdAt 超出有效日期范围（1e20）', JSON.stringify([rec('baddate', { createdAt: 1e20 })])],
     ];
     let caseIdx = 0;
     for (const [label, content] of cases) {
@@ -785,6 +786,38 @@ console.log('阶段 K：坏记录拒绝 / 恢复旧备份再迁移 / 恰好 1000
     check('满额故障态后登录返回 503', login.status === 503, `实际 ${login.status}`);
   } finally {
     await srv8.stop();
+  }
+}
+
+// ---------- 阶段 L：tokenVersion 到顶时改密轮换世代 ----------
+console.log('阶段 L：版本号到顶不溢出（换世代 id + 版本归零）');
+{
+  const srv = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const adminLogin = await postJson(srv.base, '/api/admin/login', { password: ADMIN_A });
+    const adminToken = cookieOf(adminLogin, 'ft_admin')?.value;
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync('password123', salt, 64).toString('hex');
+    const maxed = [{ username: 'maxed', salt, hash, createdAt: Date.now(), tokenVersion: 9007199254740991 }];
+    fs.writeFileSync(path.join(srv.dir, 'data', 'users.json'), JSON.stringify(maxed));
+    const pw = await postJson(
+      srv.base,
+      '/api/admin/users/password',
+      { username: 'maxed', password: 'newpassword1' },
+      { cookie: `ft_admin=${adminToken}` }
+    );
+    check('版本到顶时改密成功（不溢出成非法值）', pw.status === 200, `实际 ${pw.status}`);
+    const after = JSON.parse(fs.readFileSync(path.join(srv.dir, 'data', 'users.json'), 'utf8'));
+    check(
+      '改密后版本归零且已换新 id',
+      after[0]?.tokenVersion === 0 && typeof after[0]?.id === 'string' && after[0].id.length > 0
+    );
+    const login = await postJson(srv.base, '/api/auth', { username: 'maxed', password: 'newpassword1' });
+    check('轮换后新密码可登录', login.status === 200, `实际 ${login.status}`);
+    const home = await getHome(srv.base, cookieOf(login, 'ft_session')?.value);
+    check('轮换后会话能进首页（文件未被判损坏）', home.text.includes(markerName));
+  } finally {
+    await srv.stop();
   }
 }
 
