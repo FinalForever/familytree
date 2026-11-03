@@ -17,6 +17,9 @@
     "react-dom": "^19.0.0",
     "reactflow": "^11.11.4"
   },
+  "overrides": {
+    "postcss": "8.5.32"
+  },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",

@@ -26,28 +26,47 @@ export function checkPassword(input: string): boolean {
   return crypto.timingSafeEqual(a, b);
 }
 
-export function issueToken(subject = 'family'): string {
-  const payload = { sub: subject, exp: Date.now() + TOKEN_TTL_MS };
+export interface TokenPayload {
+  sub: string;
+  exp: number;
+  ver: number;
+}
+
+function hmac(body: string, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(body).digest('base64url');
+}
+
+function parseToken(token: string | null | undefined, secret: string): TokenPayload | null {
+  if (!token || !secret) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [body, sig] = parts;
+  const a = Buffer.from(sig);
+  const b = Buffer.from(hmac(body, secret));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (typeof payload?.sub !== 'string' || typeof payload?.exp !== 'number') return null;
+    if (Date.now() >= payload.exp) return null;
+    return { sub: payload.sub, exp: payload.exp, ver: typeof payload.ver === 'number' ? payload.ver : 0 };
+  } catch {
+    return null;
+  }
+}
+
+function mintToken(subject: string, version: number, secret: string): string {
+  const payload = { sub: subject, exp: Date.now() + TOKEN_TTL_MS, ver: version };
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto.createHmac('sha256', getSecret()).update(body).digest('base64url');
-  return `${body}.${sig}`;
+  return `${body}.${hmac(body, secret)}`;
+}
+
+// 签发普通账号令牌：version 取账号当前的 tokenVersion，改密后版本递增、旧令牌随即失效
+export function issueToken(subject = 'family', version = 0): string {
+  return mintToken(subject, version, getSecret());
 }
 
 export function verifyToken(token: string | null | undefined): boolean {
-  if (!token || !getSecret()) return false;
-  const parts = token.split('.');
-  if (parts.length !== 2) return false;
-  const [body, sig] = parts;
-  const expected = crypto.createHmac('sha256', getSecret()).update(body).digest('base64url');
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
-  try {
-    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-    return typeof payload.exp === 'number' && Date.now() < payload.exp;
-  } catch {
-    return false;
-  }
+  return parseToken(token, getSecret()) !== null;
 }
 
 export function extractToken(request: Request): string | null {
@@ -79,27 +98,54 @@ export function recordLoginAttempt(key: string): void {
 }
 
 export function clientKey(request: Request): string {
+  // 来源标识只取可信代理给出的值：Cloudflare 的 CF-Connecting-IP 由 CF 边缘写入、访客无法伪造；
+  // 没有时退回 X-Forwarded-For 的最后一跳（离应用最近的可信代理追加的那一项）。
+  // 绝不能取 XFF 第一项——那是访客自己可控的内容，用它做限流键等于没有限流。
+  const cf = request.headers.get('cf-connecting-ip');
+  if (cf && cf.trim()) return cf.trim();
   const fwd = request.headers.get('x-forwarded-for');
-  return (fwd ? fwd.split(',')[0].trim() : '') || 'local';
+  if (fwd) {
+    const parts = fwd.split(',').map((s) => s.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
+  }
+  return 'local';
 }
 
-// 验签并取出令牌主体（账号名或管理员标识），无效返回 null
+// 请求体上限（字节）：登录/注册等 JSON 接口只接受小请求体，超限直接拒绝，
+// 避免超大请求体白白占用解析与口令哈希资源
+export function requestBodyTooLarge(request: Request, limit = 16384): boolean {
+  const len = Number(request.headers.get('content-length') || 0);
+  return Number.isFinite(len) && len > limit;
+}
+
+// 验签并取出令牌主体（账号名），无效返回 null
 export function getTokenSubject(token: string | null | undefined): string | null {
-  if (!token || !getSecret()) return null;
-  const parts = token.split('.');
-  if (parts.length !== 2) return null;
-  const [body, sig] = parts;
-  const expected = crypto.createHmac('sha256', getSecret()).update(body).digest('base64url');
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  try {
-    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-    if (typeof payload.exp !== 'number' || Date.now() >= payload.exp) return null;
-    return typeof payload.sub === 'string' ? payload.sub : null;
-  } catch {
-    return null;
-  }
+  const payload = parseToken(token, getSecret());
+  return payload ? payload.sub : null;
+}
+
+// 验签并取出完整载荷（含版本号，页面据此与账号当前 tokenVersion 比对），无效返回 null
+export function getTokenPayload(token: string | null | undefined): TokenPayload | null {
+  return parseToken(token, getSecret());
+}
+
+// —— 管理员令牌：签名密钥掺入管理员口令 ——
+// 轮换 ADMIN_PASSWORD 后，旧密钥随之改变，此前签发的所有管理员令牌立即失效。
+function adminSecret(): string {
+  const base = getSecret();
+  if (!base) return '';
+  return crypto.createHmac('sha256', base).update(`admin:${process.env.ADMIN_PASSWORD || ''}`).digest('base64url');
+}
+
+export function issueAdminToken(subject: string): string {
+  return mintToken(subject, 0, adminSecret());
+}
+
+export function getAdminTokenSubject(token: string | null | undefined): string | null {
+  const secret = adminSecret();
+  if (!secret) return null;
+  const payload = parseToken(token, secret);
+  return payload ? payload.sub : null;
 }
 
 // —— 前台登录失败锁定：10 分钟内失败 5 次 → 锁定该来源 30 分钟（与后台同款规则）——

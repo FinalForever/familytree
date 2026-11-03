@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { normalizeUsername, verifyUserPassword } from '@/utils/users';
+import { findUser, normalizeUsername, verifyUserPassword } from '@/utils/users';
 import {
   clearLoginFailures,
   clientKey,
@@ -9,6 +9,7 @@ import {
   loginRateLimited,
   recordLoginAttempt,
   recordLoginFailure,
+  requestBodyTooLarge,
 } from '@/utils/auth';
 
 // 账号 + 密码登录：口令以 scrypt 哈希存于服务端账号文件，校验通过后
@@ -37,6 +38,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (requestBodyTooLarge(request)) {
+      return NextResponse.json(
+        { success: false, message: '请求体过大' },
+        { status: 413 }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
     const username = typeof body?.username === 'string' ? body.username : '';
     const password = typeof body?.password === 'string' ? body.password : '';
@@ -44,6 +52,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, message: '请输入账号和密码' },
         { status: 400 }
+      );
+    }
+    // 账号合法长度至多 32 位，超长直接按登录失败处理，不进后续校验
+    if (username.length > 64) {
+      return NextResponse.json(
+        { success: false, message: '账号或密码不正确' },
+        { status: 401 }
       );
     }
 
@@ -59,10 +74,12 @@ export async function POST(request: Request) {
 
     clearLoginFailures(key);
 
-    const token = issueToken(normalizeUsername(username));
+    const user = findUser(username);
+    const token = issueToken(user?.username ?? normalizeUsername(username), user?.tokenVersion ?? 0);
     const res = NextResponse.json({ success: true });
     res.cookies.set('ft_session', token, {
       httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
       maxAge: 24 * 60 * 60,

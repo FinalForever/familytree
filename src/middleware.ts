@@ -8,8 +8,12 @@ const MAX_REQ = 60;
 const hits = new Map<string, number[]>();
 
 export function middleware(request: NextRequest) {
+  // 与 utils/auth.ts 的 clientKey 同规则：优先 CF-Connecting-IP，否则取 XFF 最后一跳；
+  // XFF 第一项是访客可控的，不能用作限流键
   const ip =
-    request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
+    request.headers.get('cf-connecting-ip')?.trim() ||
+    request.headers.get('x-forwarded-for')?.split(',').map((s) => s.trim()).filter(Boolean).pop() ||
+    'local';
   const now = Date.now();
   const list = (hits.get(ip) || []).filter((t) => now - t < WINDOW_MS);
   list.push(now);

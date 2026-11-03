@@ -10,7 +10,7 @@ import {
   recordAdminAttempt,
   recordAdminFailure,
 } from '@/utils/admin';
-import { clientKey, issueToken } from '@/utils/auth';
+import { clientKey, issueAdminToken, requestBodyTooLarge } from '@/utils/auth';
 
 // 管理员登录：口令只存服务端环境变量 ADMIN_PASSWORD，成功后下发独立的管理员会话 Cookie。
 // 防爆破：按来源限流 5 次/10 分钟；10 分钟内失败 5 次锁定该来源 30 分钟；失败尝试记入日志。
@@ -38,6 +38,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (requestBodyTooLarge(request)) {
+      return NextResponse.json(
+        { success: false, message: '请求体过大' },
+        { status: 413 }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
     const password = typeof body?.password === 'string' ? body.password : '';
     recordAdminAttempt(key);
@@ -51,10 +58,11 @@ export async function POST(request: Request) {
     }
 
     clearAdminFailures(key);
-    const token = issueToken(ADMIN_SUBJECT);
+    const token = issueAdminToken(ADMIN_SUBJECT);
     const res = NextResponse.json({ success: true });
     res.cookies.set(ADMIN_COOKIE, token, {
       httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
       maxAge: 12 * 60 * 60,

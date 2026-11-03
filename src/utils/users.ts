@@ -9,7 +9,12 @@ export interface UserRecord {
   salt: string;
   hash: string;
   createdAt: number;
+  // 会话令牌版本：签发令牌时写入载荷，改密时递增，此前签发的令牌随即失效。老记录无此字段按 0 处理
+  tokenVersion?: number;
 }
+
+// 口令长度上限：scrypt 对超长输入同样要整段处理，无上限等于把拒绝服务面留给访客
+export const MAX_PASSWORD_LENGTH = 128;
 
 function usersFile(): string {
   if (process.env.USERS_FILE) return process.env.USERS_FILE;
@@ -53,6 +58,7 @@ export function createUser(username: string, password: string): UserRecord {
     salt,
     hash,
     createdAt: Date.now(),
+    tokenVersion: 0,
   };
   const users = loadUsers();
   users.push(record);
@@ -61,6 +67,8 @@ export function createUser(username: string, password: string): UserRecord {
 }
 
 export function verifyUserPassword(username: string, password: string): boolean {
+  // 超长口令直接判失败，不进 scrypt（合法口令在注册/改密时已被上限拦住）
+  if (!password || password.length > MAX_PASSWORD_LENGTH) return false;
   const user = findUser(username);
   if (!user) {
     // 账号不存在时也做一次等价计算，避免用响应时间泄露账号是否已注册
@@ -73,10 +81,12 @@ export function verifyUserPassword(username: string, password: string): boolean 
 }
 
 export function isRegistrationOpen(): boolean {
-  // 后台设置优先（即时生效），未设置时回退到环境变量 REGISTRATION_OPEN
+  // 环境变量明确设为 false 时强制关闭、压过后台设置——部署方收口的开关不能被面板翻开；
+  // 其余情况后台设置优先（即时生效），再未设置时默认开放
+  if (process.env.REGISTRATION_OPEN === 'false') return false;
   const settings = loadSettings();
   if (typeof settings.registrationOpen === 'boolean') return settings.registrationOpen;
-  return process.env.REGISTRATION_OPEN !== 'false';
+  return true;
 }
 
 export function setRegistrationOpen(open: boolean): void {
@@ -105,6 +115,8 @@ export function setUserPassword(username: string, password: string): boolean {
   if (!user) return false;
   user.salt = crypto.randomBytes(16).toString('hex');
   user.hash = crypto.scryptSync(password, user.salt, 64).toString('hex');
+  // 改密即让此前签发的所有会话令牌失效
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
   saveUsers(users);
   return true;
 }

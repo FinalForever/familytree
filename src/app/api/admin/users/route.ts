@@ -6,6 +6,7 @@ import {
   findUser,
   isValidUsername,
   loadUsers,
+  MAX_PASSWORD_LENGTH,
 } from '@/utils/users';
 
 function unauthorized() {
@@ -41,6 +42,12 @@ export async function POST(request: Request) {
   if (password.length < 8) {
     return NextResponse.json(
       { success: false, message: '密码至少 8 位' },
+      { status: 400 }
+    );
+  }
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    return NextResponse.json(
+      { success: false, message: `密码最长 ${MAX_PASSWORD_LENGTH} 位` },
       { status: 400 }
     );
   }

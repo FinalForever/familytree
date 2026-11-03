@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { getTokenSubject } from '@/utils/auth';
+import { getAdminTokenSubject } from '@/utils/auth';
 import { ADMIN_COOKIE, ADMIN_SUBJECT } from '@/utils/admin';
 import AdminLogin from '../components/AdminLogin';
 import AdminPanel from '../components/AdminPanel';
@@ -11,7 +11,7 @@ export default async function AdminPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get(ADMIN_COOKIE)?.value;
 
-  if (getTokenSubject(token) !== ADMIN_SUBJECT) {
+  if (getAdminTokenSubject(token) !== ADMIN_SUBJECT) {
     return <AdminLogin />;
   }
   return <AdminPanel />;

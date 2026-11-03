@@ -70,14 +70,15 @@ export default function HomeClient({ initialData, serverAuthed = false, registra
   }, []);
   
   const handleLogout = useCallback(async () => {
-    // 退出登录：清掉服务端会话 Cookie 后刷新页面，服务端会重新渲染登录页
+    // 退出登录：请服务端清掉会话 Cookie 后刷新页面，服务端会重新渲染登录页。
+    // 会话 Cookie 是 HttpOnly，前端 JS 删不掉；请求失败时明确提示重试，不能假装已退出
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      const res = await fetch('/api/auth/logout', { method: 'POST' });
+      if (!res.ok) throw new Error(`logout failed: ${res.status}`);
+      window.location.reload();
     } catch {
-      // 忽略网络错误，下面刷新后服务端仍会按无会话处理（Cookie 可能残留时手动过期）
-      document.cookie = 'ft_session=; path=/; max-age=0';
+      window.alert('退出失败，请检查网络后重试');
     }
-    window.location.reload();
   }, []);
 
   useEffect(() => {

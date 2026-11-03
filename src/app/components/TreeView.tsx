@@ -457,7 +457,10 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
       setCollapsed((prev) => {
         const next = new Set(prev);
         let cur = model.parentOf.get(found!);
-        while (cur) {
+        const seen = new Set<string>();
+        while (cur && !seen.has(cur)) {
+          // 防环：数据被改出父子环时也不能死循环（服务端另有结构校验，这里是前端兜底）
+          seen.add(cur);
           next.delete(cur);
           cur = model.parentOf.get(cur);
         }

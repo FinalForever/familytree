@@ -83,9 +83,47 @@ export function getFamilyFullName(): string {
   return `${config.familyName}氏`;
 }
 
+// 家谱数据结构校验：数据由人工维护、直接改 JSON，改坏时宁可整页回退空数据也不能让页面崩溃或死循环。
+// 只拦真正危险的情况：结构类型不对、id 重复、父子关系成环。
+// fatherId 指向不存在的 id 或指向自己时按始祖处理（与 TreeView 的建树规则一致），不拦。
+export function validateFamilyData(data: unknown): data is FamilyData {
+  if (!data || typeof data !== 'object') return false;
+  const generations = (data as FamilyData).generations;
+  if (!Array.isArray(generations)) return false;
+  const ids = new Set<string>();
+  const parentOf = new Map<string, string>();
+  for (const g of generations) {
+    if (!g || !Array.isArray(g.people)) return false;
+    for (const p of g.people) {
+      if (!p || typeof p.id !== 'string' || !p.id || typeof p.name !== 'string') return false;
+      if (ids.has(p.id)) return false;
+      ids.add(p.id);
+      if (typeof p.fatherId === 'string' && p.fatherId && p.fatherId !== p.id) {
+        parentOf.set(p.id, p.fatherId);
+      }
+    }
+  }
+  // 父链环检测：沿 fatherId 一直往上走，走回已访问过的节点即成环
+  for (const id of parentOf.keys()) {
+    const seen = new Set<string>([id]);
+    let cur = parentOf.get(id);
+    while (cur && parentOf.has(cur)) {
+      if (seen.has(cur)) return false;
+      seen.add(cur);
+      cur = parentOf.get(cur);
+    }
+  }
+  return true;
+}
+
 export async function getFamilyDataOnServer(): Promise<FamilyData> {
   // 不缓存：数据文件修改后下一次请求即生效
-  return loadConfigOnServer<FamilyData>('family-data.json', defaultFamilyData);
+  const data = await loadConfigOnServer<FamilyData>('family-data.json', defaultFamilyData);
+  if (!validateFamilyData(data)) {
+    console.error('family-data.json 结构校验未通过（类型不对/id 重复/父子成环），已回退为空数据，请检查数据文件');
+    return defaultFamilyData;
+  }
+  return data;
 }
 
 // 客户端公开配置（只包含可以在客户端公开的信息）

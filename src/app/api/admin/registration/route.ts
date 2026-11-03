@@ -33,5 +33,6 @@ export async function POST(request: Request) {
     );
   }
   setRegistrationOpen(body.open);
-  return NextResponse.json({ success: true, registrationOpen: body.open });
+  // 返回实际生效状态：环境变量 REGISTRATION_OPEN=false 时强制关闭，面板写入的值不会生效
+  return NextResponse.json({ success: true, registrationOpen: isRegistrationOpen() });
 }

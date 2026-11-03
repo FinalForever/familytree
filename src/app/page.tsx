@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { getFamilyDataOnServer } from '@/utils/config';
-import { getTokenSubject } from '@/utils/auth';
+import { getTokenPayload } from '@/utils/auth';
 import { findUser, getFamilyName, isRegistrationOpen } from '@/utils/users';
 import HomeClient from './components/HomeClient';
 import LoginForm from './components/LoginForm';
@@ -14,9 +14,11 @@ export const dynamic = 'force-dynamic';
 export default async function Page() {
   const cookieStore = await cookies();
   const token = cookieStore.get('ft_session')?.value;
-  const subject = getTokenSubject(token);
+  const payload = getTokenPayload(token);
+  const user = payload ? findUser(payload.sub) : undefined;
 
-  if (!subject || !findUser(subject)) {
+  // 账号被删、或改密后令牌版本落后于账号当前版本（改密即踢下线），都按未登录处理
+  if (!payload || !user || (user.tokenVersion ?? 0) !== payload.ver) {
     return <LoginForm registrationOpen={isRegistrationOpen()} familyName={getFamilyName()} />;
   }
 
