@@ -59,25 +59,47 @@ export function loadUsers(): UserRecord[] {
     console.error('账号文件格式异常（不是数组），拒绝一切账号读写（保护原文件不被覆盖）');
     throw new Error('账号存储已损坏');
   }
+  for (const u of parsed) {
+    if (!isValidUserRecord(u)) {
+      console.error('账号文件中有结构不完整的记录，拒绝一切账号读写（保护原文件不被覆盖），请修复 users.json');
+      throw new Error('账号存储已损坏');
+    }
+  }
   ensureUserIds(parsed);
   return parsed;
 }
 
-// 老账号记录补 id（一次性迁移）：整段同步执行、不会被并发请求打断；写回成功才置标志。
-// 写回失败直接抛错（由 loadUsers 的调用方回 5xx）：若带着内存里临时生成的 id 继续签发 Cookie，
-// 后续请求重新加载时生成的又是另一批 id，会话永远验不过——宁可明确报错，不发假会话。
-let userIdsMigrated = false;
+// 单条记录的结构校验：只验顶层是数组还不够——字段缺失的记录混在表里，轻则该账号永远
+// 登不上、注册等写操作还会把坏数据原样落盘，重则记录是 null 时读到就抛错。任何一条
+// 不合格都按文件损坏处理。只查必填字段与类型，不拒绝未知的新字段（向后兼容）。
+function isValidUserRecord(u: unknown): u is UserRecord {
+  if (!u || typeof u !== 'object') return false;
+  const r = u as Record<string, unknown>;
+  return (
+    typeof r.username === 'string' &&
+    r.username.length > 0 &&
+    typeof r.salt === 'string' &&
+    r.salt.length > 0 &&
+    typeof r.hash === 'string' &&
+    r.hash.length > 0 &&
+    typeof r.createdAt === 'number' &&
+    (r.id === undefined || (typeof r.id === 'string' && r.id.length > 0)) &&
+    (r.tokenVersion === undefined || typeof r.tokenVersion === 'number')
+  );
+}
+
+// 老账号记录补 id：每次加载都检查，不能用进程级一次性标志——若进程跑起来后恢复了一份
+// 旧格式备份，已「迁移过」的标志会让新记录永远补不上 id，签发的令牌没 uid、首页必然拒绝
+// （表现为登录 200 却进不去）。加载全程同步、无 await，两次加载不会交错生成两批 id；
+// 扫描只是对小数组做一次 filter，成本可忽略。写回失败直接抛错（由 loadUsers 的调用方回
+// 5xx）：若带着内存里临时生成的 id 继续签发 Cookie，后续请求重新加载时生成的又是另一批
+// id，会话永远验不过——宁可明确报错，不发假会话。
 function ensureUserIds(users: UserRecord[]): void {
-  if (userIdsMigrated) return;
   const missing = users.filter((u) => !u.id);
-  if (missing.length === 0) {
-    userIdsMigrated = true;
-    return;
-  }
+  if (missing.length === 0) return;
   for (const u of missing) u.id = crypto.randomUUID();
   try {
     saveUsers(users);
-    userIdsMigrated = true;
   } catch (error) {
     console.error('账号 id 迁移写回失败，拒绝本次账号读写:', error);
     throw new Error('账号存储写入失败');

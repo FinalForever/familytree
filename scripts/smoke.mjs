@@ -665,6 +665,66 @@ console.log('阶段 J：账号文件损坏保护 / 迁移写回失败');
   }
 }
 
+// ---------- 阶段 K：记录级校验 / 同进程恢复旧备份 / 吊销满额边界 ----------
+console.log('阶段 K：坏记录拒绝 / 恢复旧备份再迁移 / 恰好 10000 条');
+{
+  // K1：数组里有字段缺失的记录 → 按损坏处理，注册/登录 5xx 且文件不变
+  const srv = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const usersPath = path.join(srv.dir, 'data', 'users.json');
+    const bad = JSON.stringify([{ username: 'broken' }]); // 缺 salt/hash/createdAt
+    fs.writeFileSync(usersPath, bad);
+    const reg = await postJson(srv.base, '/api/auth/register', { username: 'kuser', password: 'password123' });
+    check('坏记录时注册返回 5xx', reg.status >= 500, `实际 ${reg.status}`);
+    const login = await postJson(srv.base, '/api/auth', { username: 'broken', password: 'password123' });
+    check('坏记录时登录返回 5xx', login.status >= 500, `实际 ${login.status}`);
+    check('坏记录文件一字节未被改写', fs.readFileSync(usersPath, 'utf8') === bad);
+  } finally {
+    await srv.stop();
+  }
+
+  // K2：同进程内恢复旧格式备份（无 id）→ 迁移必须再次触发，新登录能进首页、id 已写回
+  const srv2 = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const reg = await postJson(srv2.base, '/api/auth/register', { username: 'first', password: 'password123' });
+    check('恢复前注册成功（对照）', reg.status === 200, `实际 ${reg.status}`);
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync('password123', salt, 64).toString('hex');
+    const legacy = [{ username: 'restored', salt, hash, createdAt: Date.now(), tokenVersion: 0 }];
+    fs.writeFileSync(path.join(srv2.dir, 'data', 'users.json'), JSON.stringify(legacy));
+    const login = await postJson(srv2.base, '/api/auth', { username: 'restored', password: 'password123' });
+    check('恢复旧备份后登录成功', login.status === 200, `实际 ${login.status}`);
+    const home = await getHome(srv2.base, cookieOf(login, 'ft_session')?.value);
+    check('恢复旧备份后会话能进首页（迁移已重跑）', home.text.includes(markerName));
+    const after = JSON.parse(fs.readFileSync(path.join(srv2.dir, 'data', 'users.json'), 'utf8'));
+    check('恢复的记录已被补上 id 并写回', typeof after[0]?.id === 'string' && after[0].id.length > 0);
+  } finally {
+    await srv2.stop();
+  }
+
+  // K3：吊销表恰好 10000 条（乙案语义：程序可达成的合法状态）→ 重启后健康、会话可用
+  const srv3 = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  const dirK = srv3.dir;
+  try {
+    const reg = await postJson(srv3.base, '/api/auth/register', { username: 'edgeuser', password: 'password123' });
+    const token = cookieOf(reg, 'ft_session')?.value;
+    await srv3.stop(true);
+    const entries = {};
+    const exp = Date.now() + 3600_000;
+    for (let i = 0; i < 10000; i += 1) entries[i.toString(16).padStart(64, '0')] = exp;
+    fs.writeFileSync(path.join(dirK, 'data', 'revoked-tokens.json'), JSON.stringify(entries));
+    const srv4 = await startServer({ dir: dirK, env: { ADMIN_PASSWORD: ADMIN_A } });
+    try {
+      const home = await getHome(srv4.base, token);
+      check('吊销恰好 10000 条时启动健康、会话可用', home.text.includes(markerName));
+    } finally {
+      await srv4.stop();
+    }
+  } finally {
+    await srv3.stop(true).catch(() => undefined);
+  }
+}
+
 check('哨兵 USERS_FILE 从未被使用（冒烟未写真实账号文件）', !fs.existsSync(SENTINEL_USERS_FILE));
 
 console.log(`\n结果：${passed} 通过，${failed} 失败`);
