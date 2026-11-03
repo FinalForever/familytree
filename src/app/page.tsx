@@ -17,8 +17,9 @@ export default async function Page() {
   const payload = getTokenPayload(token);
   const user = payload ? findUser(payload.sub) : undefined;
 
-  // 账号被删、或改密后令牌版本落后于账号当前版本（改密即踢下线），都按未登录处理
-  if (!payload || !user || (user.tokenVersion ?? 0) !== payload.ver) {
+  // 账号被删、账号世代 id 对不上（删号后重建了同名账号）、或改密后令牌版本落后于账号
+  // 当前版本（改密即踢下线），都按未登录处理；没有 uid 的老令牌一律不认
+  if (!payload || !user || !payload.uid || payload.uid !== user.id || (user.tokenVersion ?? 0) !== payload.ver) {
     return <LoginForm registrationOpen={isRegistrationOpen()} familyName={getFamilyName()} />;
   }
 

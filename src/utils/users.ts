@@ -13,6 +13,9 @@ const scryptAsync = promisify(crypto.scrypt) as unknown as (
 // 账号存储（仅服务端使用）：JSON 文件保存账号名 + scrypt 口令哈希，绝不存明文口令。
 // 文件位置：USERS_FILE 环境变量，或 DATA_DIR/users.json（Docker 里 DATA_DIR=/app/data，独立可写卷）。
 export interface UserRecord {
+  // 账号世代 id：创建时随机生成、永不复用。令牌绑定它之后，删号再重建同名账号也不会让旧令牌复活
+  // （只绑用户名+版本号时，新账号版本从 0 开始会与旧令牌重新匹配）。老记录无此字段，加载时自动补齐
+  id?: string;
   username: string;
   salt: string;
   hash: string;
@@ -35,9 +38,30 @@ export function loadUsers(): UserRecord[] {
     const file = usersFile();
     if (!fs.existsSync(file)) return [];
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    ensureUserIds(parsed);
+    return parsed;
   } catch {
     return [];
+  }
+}
+
+// 老账号记录补 id（一次性迁移）：整段同步执行、不会被并发请求打断；写回成功才置标志，
+// 失败则下次加载重试（避免同一账号在不同请求里拿到不同 id）
+let userIdsMigrated = false;
+function ensureUserIds(users: UserRecord[]): void {
+  if (userIdsMigrated) return;
+  const missing = users.filter((u) => !u.id);
+  if (missing.length === 0) {
+    userIdsMigrated = true;
+    return;
+  }
+  for (const u of missing) u.id = crypto.randomUUID();
+  try {
+    saveUsers(users);
+    userIdsMigrated = true;
+  } catch (error) {
+    console.error('账号 id 迁移写回失败，下次加载重试:', error);
   }
 }
 
@@ -80,6 +104,7 @@ export async function createUser(username: string, password: string): Promise<Us
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = (await scryptAsync(password, salt, 64)).toString('hex');
     const record: UserRecord = {
+      id: crypto.randomUUID(),
       username: normalized,
       salt,
       hash,

@@ -172,6 +172,14 @@ async function postJson(base, url, body, headers = {}) {
   });
 }
 
+async function delJson(base, url, body, headers = {}) {
+  return fetch(base + url, {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
 async function getHome(base, token) {
   const r = await fetch(base + '/', { headers: token ? { cookie: `ft_session=${token}` } : {} });
   return { status: r.status, text: await r.text() };
@@ -435,9 +443,13 @@ console.log('阶段 G：吊销存储 fail-closed（损坏/写失败/无效令牌
       const home = await getHome(srv2.base, token);
       check('吊销文件损坏后已吊销令牌仍被拒', home.status === 200 && !home.text.includes(markerName));
       const login = await postJson(srv2.base, '/api/auth', { username: 'guser', password: 'password123' });
-      const token2 = cookieOf(login, 'ft_session')?.value;
-      const home2 = await getHome(srv2.base, token2);
-      check('吊销文件损坏时新登录也建不了会话（fail-closed）', !home2.text.includes(markerName));
+      check(
+        '吊销文件损坏时登录返回 503 且不发 Cookie',
+        login.status === 503 && !cookieOf(login, 'ft_session'),
+        `实际 ${login.status}`
+      );
+      const adminLogin = await postJson(srv2.base, '/api/admin/login', { password: ADMIN_A });
+      check('吊销文件损坏时管理员登录返回 503', adminLogin.status === 503, `实际 ${adminLogin.status}`);
       check('日志记录吊销表故障', srv2.logs().includes('吊销表'));
     } finally {
       await srv2.stop();
@@ -517,6 +529,60 @@ console.log('阶段 H：登录/改密竞态循环');
     check('竞态后账号文件 20 条无重复无丢失', names.length === 20 && new Set(names).size === 20, `实际 ${names.length} 条`);
   } finally {
     await srv.stop();
+  }
+}
+
+// ---------- 阶段 I：账号世代绑定 + 吊销加载校验 ----------
+console.log('阶段 I：删号重建复活 / 吊销超限加载');
+{
+  // I1：删号后同名重建，旧令牌不能复活（令牌绑账号随机 id，不只绑用户名+版本号）
+  const srv = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const adminLogin = await postJson(srv.base, '/api/admin/login', { password: ADMIN_A });
+    const adminToken = cookieOf(adminLogin, 'ft_admin')?.value;
+    const reg = await postJson(srv.base, '/api/auth/register', { username: 'ghost', password: 'password123' });
+    const oldToken = cookieOf(reg, 'ft_session')?.value;
+    const homeBefore = await getHome(srv.base, oldToken);
+    check('重建前旧令牌可用（对照）', homeBefore.text.includes(markerName));
+    const del = await delJson(srv.base, '/api/admin/users', { username: 'ghost' }, { cookie: `ft_admin=${adminToken}` });
+    check('管理员删号成功', del.status === 200, `实际 ${del.status}`);
+    const recreate = await postJson(
+      srv.base,
+      '/api/admin/users',
+      { username: 'ghost', password: 'password123' },
+      { cookie: `ft_admin=${adminToken}` }
+    );
+    check('管理员重建同名账号成功', recreate.status === 200, `实际 ${recreate.status}`);
+    const homeAfter = await getHome(srv.base, oldToken);
+    check('同名重建后旧令牌不能复活', !homeAfter.text.includes(markerName));
+    const relogin = await postJson(srv.base, '/api/auth', { username: 'ghost', password: 'password123' });
+    const homeNew = await getHome(srv.base, cookieOf(relogin, 'ft_session')?.value);
+    check('重建账号新登录正常', homeNew.text.includes(markerName));
+  } finally {
+    await srv.stop();
+  }
+
+  // I2：吊销文件预置超上限的有效条目，启动加载即 fail-closed
+  const srvB = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  const dirB = srvB.dir;
+  try {
+    const reg = await postJson(srvB.base, '/api/auth/register', { username: 'capuser', password: 'password123' });
+    const token = cookieOf(reg, 'ft_session')?.value;
+    await srvB.stop(true);
+    const entries = {};
+    const exp = Date.now() + 3600_000;
+    for (let i = 0; i < 10001; i += 1) entries[i.toString(16).padStart(64, '0')] = exp;
+    fs.writeFileSync(path.join(dirB, 'data', 'revoked-tokens.json'), JSON.stringify(entries));
+    const srvB2 = await startServer({ dir: dirB, env: { ADMIN_PASSWORD: ADMIN_A } });
+    try {
+      const home = await getHome(srvB2.base, token);
+      check('吊销表超上限时启动 fail-closed（会话被拒）', !home.text.includes(markerName));
+      check('日志记录吊销表超限', srvB2.logs().includes('超过上限'));
+    } finally {
+      await srvB2.stop();
+    }
+  } finally {
+    await srvB.stop(true).catch(() => undefined);
   }
 }
 

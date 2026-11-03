@@ -10,6 +10,7 @@ import {
   recordLoginAttempt,
   recordLoginFailure,
   readJsonBody,
+  revocationStoreHealthy,
 } from '@/utils/auth';
 
 // 账号 + 密码登录：口令以 scrypt 哈希存于服务端账号文件，校验通过后
@@ -21,6 +22,14 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, message: '服务器未完成安全配置，请联系管理员' },
         { status: 500 }
+      );
+    }
+
+    // 吊销存储故障时不签发 Cookie：发了也验不过，只会让用户误以为登录成功
+    if (!revocationStoreHealthy()) {
+      return NextResponse.json(
+        { success: false, message: '服务暂时不可用，请稍后再试' },
+        { status: 503 }
       );
     }
 
@@ -90,7 +99,7 @@ export async function POST(request: Request) {
 
     clearLoginFailures(key);
 
-    const token = issueToken(current.username, current.tokenVersion ?? 0);
+    const token = issueToken(current.username, current.tokenVersion ?? 0, current.id);
     const res = NextResponse.json({ success: true });
     res.cookies.set('ft_session', token, {
       httpOnly: true,

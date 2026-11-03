@@ -13,6 +13,7 @@ import {
   loginRateLimited,
   recordLoginAttempt,
   readJsonBody,
+  revocationStoreHealthy,
 } from '@/utils/auth';
 
 // 账号注册：受 REGISTRATION_OPEN 开关控制（设为 false 即关闭注册，改环境变量后重启容器生效）。
@@ -31,6 +32,14 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, message: '服务器未完成安全配置，请联系管理员' },
         { status: 500 }
+      );
+    }
+
+    // 吊销存储故障时不签发 Cookie（同登录）
+    if (!revocationStoreHealthy()) {
+      return NextResponse.json(
+        { success: false, message: '服务暂时不可用，请稍后再试' },
+        { status: 503 }
       );
     }
 
@@ -89,7 +98,7 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-    const token = issueToken(user.username, user.tokenVersion ?? 0);
+    const token = issueToken(user.username, user.tokenVersion ?? 0, user.id);
     const res = NextResponse.json({ success: true });
     res.cookies.set('ft_session', token, {
       httpOnly: true,

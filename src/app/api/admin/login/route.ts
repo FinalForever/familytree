@@ -10,7 +10,7 @@ import {
   recordAdminAttempt,
   recordAdminFailure,
 } from '@/utils/admin';
-import { clientKey, isAuthConfigured, issueAdminToken, readJsonBody } from '@/utils/auth';
+import { clientKey, isAuthConfigured, issueAdminToken, readJsonBody, revocationStoreHealthy } from '@/utils/auth';
 
 // 管理员登录：口令只存服务端环境变量 ADMIN_PASSWORD，成功后下发独立的管理员会话 Cookie。
 // 防爆破：按来源限流 5 次/10 分钟；10 分钟内失败 5 次锁定该来源 30 分钟；失败尝试记入日志。
@@ -28,6 +28,14 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, message: '服务器未完成安全配置（缺少 AUTH_SECRET），请联系管理员' },
         { status: 500 }
+      );
+    }
+
+    // 吊销存储故障时不签发 Cookie（同前台登录）
+    if (!revocationStoreHealthy()) {
+      return NextResponse.json(
+        { success: false, message: '服务暂时不可用，请稍后再试' },
+        { status: 503 }
       );
     }
 

@@ -36,6 +36,9 @@ export interface TokenPayload {
   sub: string;
   exp: number;
   ver: number;
+  // 账号世代 id（普通用户令牌才有）：与账号记录的随机 id 比对，删号重建同名也不能让旧令牌复活。
+  // 本字段上线前签发的老令牌没有 uid，校验时一律不认（部署后需重新登录一次）
+  uid?: string;
 }
 
 function hmac(body: string, secret: string): string {
@@ -76,8 +79,21 @@ function loadRevoked(): Map<string, number> {
       const parsed: unknown = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('吊销表不是 JSON 对象');
       const now = Date.now();
+      let live = 0;
       for (const [fp, exp] of Object.entries(parsed)) {
-        if (typeof exp === 'number' && exp > now) revokedTokens.set(fp, exp);
+        // 条目格式也要验：指纹必须是 sha256 的 64 位十六进制、过期值必须是有效数字，
+        // 对不上说明文件不是本程序写的（损坏或被篡改），按损坏走 fail-closed，不静默吞
+        if (!/^[0-9a-f]{64}$/.test(fp) || typeof exp !== 'number' || !Number.isFinite(exp) || exp <= 0) {
+          throw new Error('吊销表条目格式无效');
+        }
+        if (exp > now) {
+          revokedTokens.set(fp, exp);
+          live += 1;
+        }
+      }
+      // 上限在加载时同样生效：文件里塞再多也不能绕过新增时的硬上限
+      if (live > MAX_REVOKED_ENTRIES) {
+        throw new Error(`吊销表有效条目 ${live} 条，超过上限 ${MAX_REVOKED_ENTRIES} 条`);
       }
     } catch (error) {
       revokedStoreBroken = true;
@@ -105,6 +121,13 @@ function persistRevoked(): boolean {
 
 function tokenFingerprint(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+// 吊销存储是否健康：签发新令牌的入口（登录/注册/管理员登录）先查这里——
+// 存储故障时全员会话本来就验不过，再发 Cookie 只会让用户误以为登录成功，不如直接报服务错误
+export function revocationStoreHealthy(): boolean {
+  loadRevoked();
+  return !revokedStoreBroken;
 }
 
 // 吊销一个令牌。只登记「签名有效且未过期」的令牌（普通与管理员令牌都认）：
@@ -147,21 +170,28 @@ function parseToken(token: string | null | undefined, secret: string): TokenPayl
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     if (typeof payload?.sub !== 'string' || typeof payload?.exp !== 'number') return null;
     if (Date.now() >= payload.exp) return null;
-    return { sub: payload.sub, exp: payload.exp, ver: typeof payload.ver === 'number' ? payload.ver : 0 };
+    return {
+      sub: payload.sub,
+      exp: payload.exp,
+      ver: typeof payload.ver === 'number' ? payload.ver : 0,
+      // uid 必须原样带回：页面校验靠它绑账号世代，漏了会把所有正常会话误拒
+      ...(typeof payload.uid === 'string' ? { uid: payload.uid } : {}),
+    };
   } catch {
     return null;
   }
 }
 
-function mintToken(subject: string, version: number, secret: string): string {
-  const payload = { sub: subject, exp: Date.now() + TOKEN_TTL_MS, ver: version };
+function mintToken(subject: string, version: number, secret: string, userId?: string): string {
+  const payload: TokenPayload = { sub: subject, exp: Date.now() + TOKEN_TTL_MS, ver: version };
+  if (userId) payload.uid = userId;
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${body}.${hmac(body, secret)}`;
 }
 
 // 签发普通账号令牌：version 取账号当前的 tokenVersion，改密后版本递增、旧令牌随即失效
-export function issueToken(subject = 'family', version = 0): string {
-  return mintToken(subject, version, getSecret());
+export function issueToken(subject = 'family', version = 0, userId?: string): string {
+  return mintToken(subject, version, getSecret(), userId);
 }
 
 export function verifyToken(token: string | null | undefined): boolean {
