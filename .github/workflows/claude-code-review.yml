@@ -12,6 +12,8 @@ on:
 
 jobs:
   claude-review:
+    # 只对仓库所有者本人提的 PR 启动（纵深防御：减少 OAuth 凭据的暴露面）
+    if: github.event.pull_request.user.login == 'FinalForever'
     # Optional: Filter by PR author
     # if: |
     #   github.event.pull_request.user.login == 'external-contributor' ||
