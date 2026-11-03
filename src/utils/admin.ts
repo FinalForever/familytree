@@ -7,7 +7,8 @@ export const ADMIN_SUBJECT = 'admin:panel';
 export const ADMIN_COOKIE = 'ft_admin';
 
 export function isAdminConfigured(): boolean {
-  return Boolean(process.env.ADMIN_PASSWORD);
+  // 全空白不算配置了口令
+  return Boolean(process.env.ADMIN_PASSWORD?.trim());
 }
 
 export function checkAdminPassword(input: string): boolean {
@@ -74,6 +75,11 @@ export function recordAdminFailure(key: string): void {
   console.warn(`管理员登录失败：来源 ${key}，近 10 分钟失败 ${list.length} 次`);
   if (list.length >= envInt('ADMIN_MAX_FAILURES', 5)) {
     adminLockedUntil.set(key, Date.now() + LOCK_MS);
+    // 锁定到期表也要有界：写入时顺带清掉已过期的锁，避免只进不出
+    if (adminLockedUntil.size > 1000) {
+      const now = Date.now();
+      for (const [k, until] of adminLockedUntil) if (until <= now) adminLockedUntil.delete(k);
+    }
     adminFailures.set(key, []);
     console.warn(`管理员登录失败过多：来源 ${key} 已锁定 30 分钟`);
   }

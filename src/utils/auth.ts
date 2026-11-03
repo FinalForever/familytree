@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 // 服务端会话令牌工具（仅在服务端使用）：HMAC-SHA256 签名，防伪造。
 // 密钥与口令均只从服务端环境变量读取，绝不下发到客户端。
@@ -6,12 +8,16 @@ import crypto from 'crypto';
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 function getSecret(): string {
-  return process.env.AUTH_SECRET || '';
+  // 两端空白不算密钥内容：一律先 trim，避免"   "这类值被当成已配置
+  return (process.env.AUTH_SECRET || '').trim();
 }
+
+// 签名密钥最小长度：太短或占位值形同虚设，按未配置处理（登录会明确 500，而不是签出弱令牌）
+const MIN_SECRET_LENGTH = 16;
 
 export function isAuthConfigured(): boolean {
   // 邮箱账号登录只需要签名密钥；FAMILY_PASSWORD 是旧口令登录的遗留，不再必需
-  return Boolean(getSecret());
+  return getSecret().length >= MIN_SECRET_LENGTH;
 }
 
 export function checkPassword(input: string): boolean {
@@ -36,9 +42,49 @@ function hmac(body: string, secret: string): string {
   return crypto.createHmac('sha256', secret).update(body).digest('base64url');
 }
 
-// —— 退出吊销表（内存）：注销时把令牌指纹记到它的过期时间为止，验签前先查 ——
-// 无状态令牌本身无法撤销，这张表让「退出」对被复制走的令牌同样生效（单实例部署够用）。
+// —— 退出吊销表（落盘持久化）：注销时把令牌指纹记到它的过期时间为止，验签前先查 ——
+// 无状态令牌本身无法撤销，这张表让「退出」对被复制走的令牌同样生效。
+// 存储与 users.json 同一套路（data 卷上的 JSON 文件、原子写）：进程重启后吊销仍然有效；
+// 清理只删已过期项，绝不淘汰未过期的吊销记录。注：文件是单实例存储，多实例部署需换共享存储。
 const revokedTokens = new Map<string, number>();
+let revokedLoaded = false;
+
+function revokedFile(): string {
+  const dir = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+  return path.join(dir, 'revoked-tokens.json');
+}
+
+function loadRevoked(): Map<string, number> {
+  if (!revokedLoaded) {
+    revokedLoaded = true;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(revokedFile(), 'utf8'));
+      if (parsed && typeof parsed === 'object') {
+        const now = Date.now();
+        for (const [fp, exp] of Object.entries(parsed)) {
+          if (typeof exp === 'number' && exp > now) revokedTokens.set(fp, exp);
+        }
+      }
+    } catch {
+      // 文件不存在或损坏：按空表处理
+    }
+  }
+  return revokedTokens;
+}
+
+function persistRevoked(): void {
+  try {
+    const now = Date.now();
+    for (const [fp, exp] of revokedTokens) if (exp <= now) revokedTokens.delete(fp);
+    const file = revokedFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(revokedTokens)), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    console.error('吊销表落盘失败（本次吊销仅在内存生效）:', error);
+  }
+}
 
 function tokenFingerprint(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -53,16 +99,13 @@ export function revokeToken(token: string | null | undefined): void {
   } catch {
     // 载荷读不出就按默认时长记
   }
-  revokedTokens.set(tokenFingerprint(token), expMs);
-  if (revokedTokens.size > 1000) {
-    const now = Date.now();
-    for (const [fp, exp] of revokedTokens) if (exp <= now) revokedTokens.delete(fp);
-  }
+  loadRevoked().set(tokenFingerprint(token), expMs);
+  persistRevoked();
 }
 
 function parseToken(token: string | null | undefined, secret: string): TokenPayload | null {
   if (!token || !secret) return null;
-  if (revokedTokens.has(tokenFingerprint(token))) return null;
+  if (loadRevoked().has(tokenFingerprint(token))) return null;
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [body, sig] = parts;
@@ -160,12 +203,18 @@ export function requestBodyTooLarge(request: Request, limit = 16384): boolean {
 }
 
 // 读 JSON 请求体并按实际字节数限流：只看 Content-Length 挡不住分块传输的大请求，
-// 这里边读边计数，超限立刻取消读取并返回不 ok，由调用方回 413
-export async function readJsonBody(
-  request: Request,
-  limit = 16384
-): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false }> {
-  if (requestBodyTooLarge(request, limit)) return { ok: false };
+// 这里边读边计数。结果三态分明，不再把读失败/格式错误混同为空请求体：
+//   过大 → 413；JSON 格式错误 → 400；读取中断 → 400；空体 → {} 放行（由字段校验兜底）
+// 注：Next standalone 会先把请求体收完再进 handler（裸 socket 实测），所以「读取时限」
+// 在应用层无从生效——慢速滴流由 Node 服务层/前置代理的超时兜底，这里不写假超时。
+export type JsonBodyResult =
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; status: number; message: string };
+
+export async function readJsonBody(request: Request, limit = 16384): Promise<JsonBodyResult> {
+  if (requestBodyTooLarge(request, limit)) {
+    return { ok: false, status: 413, message: '请求体过大' };
+  }
   const stream = request.body;
   if (!stream) return { ok: true, body: {} };
   const reader = stream.getReader();
@@ -178,25 +227,24 @@ export async function readJsonBody(
       if (value) {
         total += value.byteLength;
         if (total > limit) {
-          await reader.cancel().catch(() => undefined);
-          return { ok: false };
+          return { ok: false, status: 413, message: '请求体过大' };
         }
         chunks.push(value);
       }
     }
   } catch {
-    return { ok: true, body: {} };
+    return { ok: false, status: 400, message: '请求读取失败' };
   }
   const text = new TextDecoder().decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
   if (!text) return { ok: true, body: {} };
   try {
     const parsed: unknown = JSON.parse(text);
-    return {
-      ok: true,
-      body: parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {},
-    };
+    if (parsed && typeof parsed === 'object') {
+      return { ok: true, body: parsed as Record<string, unknown> };
+    }
+    return { ok: false, status: 400, message: '请求格式不正确' };
   } catch {
-    return { ok: true, body: {} };
+    return { ok: false, status: 400, message: '请求格式不正确' };
   }
 }
 
@@ -253,6 +301,10 @@ export function recordLoginFailure(key: string): void {
   console.warn(`前台登录失败：来源 ${key}，近 10 分钟失败 ${list.length} 次`);
   if (list.length >= LOGIN_MAX_FAILURES) {
     loginLockedUntil.set(key, now + LOGIN_LOCK_MS);
+    // 锁定到期表也要有界：写入时顺带清掉已过期的锁，避免只进不出
+    if (loginLockedUntil.size > 1000) {
+      for (const [k, until] of loginLockedUntil) if (until <= now) loginLockedUntil.delete(k);
+    }
     loginFailures.set(key, []);
     console.warn(`前台登录失败过多：来源 ${key} 已锁定 30 分钟`);
   }

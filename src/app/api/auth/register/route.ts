@@ -45,8 +45,8 @@ export async function POST(request: Request) {
     const parsed = await readJsonBody(request);
     if (!parsed.ok) {
       return NextResponse.json(
-        { success: false, message: '请求体过大' },
-        { status: 413 }
+        { success: false, message: parsed.message },
+        { status: parsed.status }
       );
     }
     const body = parsed.body;
@@ -82,6 +82,13 @@ export async function POST(request: Request) {
     }
 
     const user = await createUser(username, password);
+    if (!user) {
+      // 锁内查重命中：并发注册同名，只有一个能成功
+      return NextResponse.json(
+        { success: false, message: '该账号已注册，请直接登录' },
+        { status: 409 }
+      );
+    }
     const token = issueToken(user.username, user.tokenVersion ?? 0);
     const res = NextResponse.json({ success: true });
     res.cookies.set('ft_session', token, {

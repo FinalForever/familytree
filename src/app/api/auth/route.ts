@@ -41,8 +41,8 @@ export async function POST(request: Request) {
     const parsed = await readJsonBody(request);
     if (!parsed.ok) {
       return NextResponse.json(
-        { success: false, message: '请求体过大' },
-        { status: 413 }
+        { success: false, message: parsed.message },
+        { status: parsed.status }
       );
     }
     const body = parsed.body;

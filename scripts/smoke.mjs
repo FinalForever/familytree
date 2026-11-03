@@ -3,7 +3,8 @@
 // 用法：node scripts/smoke.mjs [--data <family-data.json 路径，默认 config/family-data.json>]
 // 覆盖：Secure/ HttpOnly Cookie、超长口令拒绝、分块大请求体 413、XFF 首项伪造仍被锁定、
 //       改密后旧令牌失效、退出吊销令牌、管理员口令轮换后旧管理员令牌失效、
-//       REGISTRATION_OPEN=false 压过后台设置、父子成环数据回退不死循环。
+//       REGISTRATION_OPEN=false 压过后台设置、父子成环数据回退不死循环、
+//       吊销落盘重启不复活、空白/过短签名密钥被拒、并发注册不丢号不重名、慢发完整请求体不误杀。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -37,7 +38,7 @@ if (!markerName) {
   process.exit(2);
 }
 
-const AUTH_SECRET = 'smoke-secret';
+const AUTH_SECRET = 'smoke-test-secret-key-0123456789';
 const ADMIN_A = 'admin-pass-a';
 const ADMIN_B = 'admin-pass-b';
 
@@ -64,13 +65,15 @@ function freePort() {
   });
 }
 
-async function startServer({ settings, data, env }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-smoke-'));
-  fs.mkdirSync(path.join(dir, 'config'));
-  fs.mkdirSync(path.join(dir, 'data'));
-  fs.writeFileSync(path.join(dir, 'config', 'family-data.json'), JSON.stringify(data));
-  if (settings !== undefined) {
-    fs.writeFileSync(path.join(dir, 'data', 'settings.json'), JSON.stringify(settings));
+async function startServer({ settings, data, env, dir: reuseDir }) {
+  const dir = reuseDir || fs.mkdtempSync(path.join(os.tmpdir(), 'ft-smoke-'));
+  if (!reuseDir) {
+    fs.mkdirSync(path.join(dir, 'config'));
+    fs.mkdirSync(path.join(dir, 'data'));
+    fs.writeFileSync(path.join(dir, 'config', 'family-data.json'), JSON.stringify(data));
+    if (settings !== undefined) {
+      fs.writeFileSync(path.join(dir, 'data', 'settings.json'), JSON.stringify(settings));
+    }
   }
   const port = await freePort();
   const child = spawn(process.execPath, [serverJs], {
@@ -102,17 +105,21 @@ async function startServer({ settings, data, env }) {
     if (Date.now() > deadline) throw new Error(`服务器 45 秒未就绪\n${logs}`);
     await new Promise((r) => setTimeout(r, 500));
   }
+  let stopped = false;
   return {
     base,
+    dir,
     logs: () => logs,
-    async stop() {
+    async stop(keepDir = false) {
+      if (stopped) return;
+      stopped = true;
       child.kill('SIGINT');
       await Promise.race([
         new Promise((r) => child.once('exit', r)),
         new Promise((r) => setTimeout(r, 3000)),
       ]);
       child.kill('SIGKILL');
-      fs.rmSync(dir, { recursive: true, force: true });
+      if (!keepDir) fs.rmSync(dir, { recursive: true, force: true });
     },
   };
 }
@@ -228,10 +235,23 @@ console.log('阶段 A：Cookie / 口令上限 / 请求体 / 限流键 / 令牌�
     const regState2 = await fetch(srv.base + '/api/admin/registration', { headers: { cookie: `ft_admin=${adminToken}` } });
     check('管理员退出后令牌被吊销 401', regState2.status === 401, `实际 ${regState2.status}`);
 
+    // 重启持久化：吊销表落盘后，重启进程被吊销的令牌不能复活
+    check('吊销表已落盘', fs.existsSync(path.join(srv.dir, 'data', 'revoked-tokens.json')));
+    await srv.stop(true);
+    const srv2 = await startServer({ dir: srv.dir, env: { ADMIN_PASSWORD: ADMIN_A } });
+    try {
+      const afterRestart = await getHome(srv2.base, token2);
+      check('重启后已吊销令牌仍失效', afterRestart.status === 200 && !afterRestart.text.includes(markerName));
+      const relogin = await postJson(srv2.base, '/api/auth', { username: 'smokeuser', password: 'newpassword456' });
+      check('重启后正常登录不受影响', relogin.status === 200, `实际 ${relogin.status}`);
+    } finally {
+      await srv2.stop();
+    }
+
     // 把管理员令牌留给阶段 B 验证口令轮换
     globalThis.__adminTokenA = adminToken;
   } finally {
-    await srv.stop();
+    await srv.stop(true).catch(() => undefined);
   }
 }
 
@@ -280,6 +300,88 @@ console.log('阶段 C：家谱数据成环时回退、不死循环');
     check('成环数据时首页仍 200（不死循环）', home.status === 200, `实际 ${home.status}`);
     check('成环数据未被渲染（已回退）', !home.text.includes('环测甲'));
     check('日志打出结构校验未通过', srv.logs().includes('family-data.json 结构校验未通过'));
+  } finally {
+    await srv.stop();
+  }
+}
+
+// ---------- 阶段 D：空白/过短签名密钥按未配置处理 ----------
+console.log('阶段 D：空白/过短 AUTH_SECRET 被拒绝');
+{
+  const srv = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A, AUTH_SECRET: '   ' } });
+  try {
+    const login = await postJson(srv.base, '/api/auth', { username: 'whoever', password: 'password123' });
+    check('全空格密钥时前台登录 500', login.status === 500, `实际 ${login.status}`);
+    const adminLogin = await postJson(srv.base, '/api/admin/login', { password: ADMIN_A });
+    check('全空格密钥时管理员登录 500', adminLogin.status === 500, `实际 ${adminLogin.status}`);
+  } finally {
+    await srv.stop();
+  }
+  const srv2 = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A, AUTH_SECRET: 'short' } });
+  try {
+    const login = await postJson(srv2.base, '/api/auth', { username: 'whoever', password: 'password123' });
+    check('过短密钥时前台登录 500', login.status === 500, `实际 ${login.status}`);
+  } finally {
+    await srv2.stop();
+  }
+}
+
+// ---------- 阶段 E：并发注册不丢号、不重名 ----------
+console.log('阶段 E：并发注册（互斥锁 + 锁内查重）');
+{
+  const srv = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const same = await Promise.all(
+      Array.from({ length: 5 }, () => postJson(srv.base, '/api/auth/register', { username: 'raceuser', password: 'password123' }))
+    );
+    const okCount = same.filter((r) => r.status === 200).length;
+    const dupCount = same.filter((r) => r.status === 409).length;
+    check('同名并发注册恰好成功 1 个', okCount === 1, `实际成功 ${okCount}`);
+    check('同名并发注册其余均 409', dupCount === 4, `实际 409 共 ${dupCount}`);
+    const distinct = await Promise.all(
+      ['race1', 'race2', 'race3', 'race4'].map((u) => postJson(srv.base, '/api/auth/register', { username: u, password: 'password123' }))
+    );
+    check('不同名并发注册全部成功', distinct.every((r) => r.status === 200), `实际 ${distinct.map((r) => r.status).join(',')}`);
+    const usersFile = path.join(srv.dir, 'data', 'users.json');
+    const users = JSON.parse(fs.readFileSync(usersFile, 'utf8'));
+    const names = users.map((u) => u.username);
+    check('账号文件里 raceuser 恰好一条', names.filter((n) => n === 'raceuser').length === 1);
+    check('账号文件共 5 条且无丢失', names.length === 5, `实际 ${names.length}`);
+  } finally {
+    await srv.stop();
+  }
+}
+
+// ---------- 阶段 F：慢速分块发送的完整请求体不被误杀 ----------
+// Next standalone 先收完请求体再进 handler，应用层「读取时限」无从生效（裸 socket 实测）；
+// 这里只断言真实成立的行为：慢发但最终完整的合法请求体应被正常处理（错密 → 401）。
+console.log('阶段 F：慢发完整请求体正常处理');
+{
+  const srv = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const parts = ['{"username":"slowuser",', '"password":"wrongpass1"', '}'];
+    let i = 0;
+    const stream = new ReadableStream({
+      async pull(c) {
+        if (i >= parts.length) {
+          c.close();
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 700));
+        c.enqueue(new TextEncoder().encode(parts[i]));
+        i += 1;
+      },
+    });
+    const res = await Promise.race([
+      fetch(srv.base + '/api/auth', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: stream,
+        duplex: 'half',
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('client-wait-timeout')), 10000)),
+    ]).catch(() => null);
+    check('慢发完整请求体被正常处理（错密 401）', res?.status === 401, `实际 ${res ? res.status : '无响应'}`);
   } finally {
     await srv.stop();
   }

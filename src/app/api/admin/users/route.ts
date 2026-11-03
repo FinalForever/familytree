@@ -33,8 +33,8 @@ export async function POST(request: Request) {
   const parsed = await readJsonBody(request);
   if (!parsed.ok) {
     return NextResponse.json(
-      { success: false, message: '请求体过大' },
-      { status: 413 }
+      { success: false, message: parsed.message },
+      { status: parsed.status }
     );
   }
   const body = parsed.body;
@@ -67,6 +67,12 @@ export async function POST(request: Request) {
   }
 
   const user = await createUser(username, password);
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: '该账号已存在' },
+      { status: 409 }
+    );
+  }
   return NextResponse.json({ success: true, username: user.username });
 }
 
@@ -76,13 +82,13 @@ export async function DELETE(request: Request) {
   const parsed = await readJsonBody(request);
   if (!parsed.ok) {
     return NextResponse.json(
-      { success: false, message: '请求体过大' },
-      { status: 413 }
+      { success: false, message: parsed.message },
+      { status: parsed.status }
     );
   }
   const body = parsed.body;
   const username = typeof body?.username === 'string' ? body.username : '';
-  if (!username || !deleteUser(username)) {
+  if (!username || !(await deleteUser(username))) {
     return NextResponse.json(
       { success: false, message: '账号不存在' },
       { status: 404 }
