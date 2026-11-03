@@ -42,12 +42,16 @@ function hmac(body: string, secret: string): string {
   return crypto.createHmac('sha256', secret).update(body).digest('base64url');
 }
 
-// —— 退出吊销表（落盘持久化）：注销时把令牌指纹记到它的过期时间为止，验签前先查 ——
+// —— 退出吊销表（落盘持久化 + fail-closed）：注销时把令牌指纹记到它的过期时间为止，验签前先查 ——
 // 无状态令牌本身无法撤销，这张表让「退出」对被复制走的令牌同样生效。
 // 存储与 users.json 同一套路（data 卷上的 JSON 文件、原子写）：进程重启后吊销仍然有效；
 // 清理只删已过期项，绝不淘汰未过期的吊销记录。注：文件是单实例存储，多实例部署需换共享存储。
+// fail-closed 原则：吊销文件「不存在」可以按空表启动；但「损坏/不可读」绝不能当空表放行——
+// 那等于让所有已吊销令牌复活。故障时宁可全员会话验证失败（掉线可恢复，吊销失效不可恢复）。
 const revokedTokens = new Map<string, number>();
 let revokedLoaded = false;
+let revokedStoreBroken = false;
+const MAX_REVOKED_ENTRIES = 10000;
 
 function revokedFile(): string {
   const dir = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -57,22 +61,33 @@ function revokedFile(): string {
 function loadRevoked(): Map<string, number> {
   if (!revokedLoaded) {
     revokedLoaded = true;
+    let raw: string;
     try {
-      const parsed = JSON.parse(fs.readFileSync(revokedFile(), 'utf8'));
-      if (parsed && typeof parsed === 'object') {
-        const now = Date.now();
-        for (const [fp, exp] of Object.entries(parsed)) {
-          if (typeof exp === 'number' && exp > now) revokedTokens.set(fp, exp);
-        }
+      raw = fs.readFileSync(revokedFile(), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        return revokedTokens; // 文件不存在：首次运行，空表正常
       }
-    } catch {
-      // 文件不存在或损坏：按空表处理
+      revokedStoreBroken = true;
+      console.error('吊销表读取失败（非文件不存在），进入 fail-closed：所有会话验证将被拒绝，请检查 data 卷与 revoked-tokens.json:', error);
+      return revokedTokens;
+    }
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('吊销表不是 JSON 对象');
+      const now = Date.now();
+      for (const [fp, exp] of Object.entries(parsed)) {
+        if (typeof exp === 'number' && exp > now) revokedTokens.set(fp, exp);
+      }
+    } catch (error) {
+      revokedStoreBroken = true;
+      console.error('吊销表文件损坏，进入 fail-closed：所有会话验证将被拒绝，请修复或删除 revoked-tokens.json 后重启:', error);
     }
   }
   return revokedTokens;
 }
 
-function persistRevoked(): void {
+function persistRevoked(): boolean {
   try {
     const now = Date.now();
     for (const [fp, exp] of revokedTokens) if (exp <= now) revokedTokens.delete(fp);
@@ -81,8 +96,10 @@ function persistRevoked(): void {
     const tmp = `${file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(revokedTokens)), { mode: 0o600 });
     fs.renameSync(tmp, file);
+    return true;
   } catch (error) {
-    console.error('吊销表落盘失败（本次吊销仅在内存生效）:', error);
+    console.error('吊销表落盘失败:', error);
+    return false;
   }
 }
 
@@ -90,22 +107,36 @@ function tokenFingerprint(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-export function revokeToken(token: string | null | undefined): void {
-  if (!token) return;
-  let expMs = Date.now() + TOKEN_TTL_MS;
-  try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString('utf8'));
-    if (typeof payload?.exp === 'number') expMs = payload.exp;
-  } catch {
-    // 载荷读不出就按默认时长记
+// 吊销一个令牌。只登记「签名有效且未过期」的令牌（普通与管理员令牌都认）：
+//   'revoked' 已落盘吊销；'invalid' 令牌本身无效/已过期，无需吊销；
+//   'failed' 存储故障或已达上限——调用方（注销接口）必须报错，不能假装退出成功。
+export function revokeToken(token: string | null | undefined): 'revoked' | 'invalid' | 'failed' {
+  if (!token) return 'invalid';
+  loadRevoked();
+  if (revokedStoreBroken) return 'failed';
+  const payload = parseToken(token, getSecret()) ?? parseToken(token, adminSecret());
+  if (!payload) return 'invalid';
+  const fp = tokenFingerprint(token);
+  if (revokedTokens.has(fp)) return 'revoked';
+  const now = Date.now();
+  for (const [k, exp] of revokedTokens) if (exp <= now) revokedTokens.delete(k);
+  if (revokedTokens.size >= MAX_REVOKED_ENTRIES) {
+    console.error(`吊销表已达硬上限 ${MAX_REVOKED_ENTRIES} 条，拒绝新增吊销（不淘汰未过期记录），请排查异常注销流量`);
+    return 'failed';
   }
-  loadRevoked().set(tokenFingerprint(token), expMs);
-  persistRevoked();
+  revokedTokens.set(fp, payload.exp);
+  if (!persistRevoked()) {
+    revokedTokens.delete(fp); // 回滚内存登记，保持与磁盘一致
+    return 'failed';
+  }
+  return 'revoked';
 }
 
 function parseToken(token: string | null | undefined, secret: string): TokenPayload | null {
   if (!token || !secret) return null;
-  if (loadRevoked().has(tokenFingerprint(token))) return null;
+  loadRevoked();
+  if (revokedStoreBroken) return null; // fail-closed：吊销存储故障时不验证任何会话
+  if (revokedTokens.has(tokenFingerprint(token))) return null;
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [body, sig] = parts;
@@ -157,6 +188,26 @@ export function sweepMap(map: Map<string, number[]>, windowMs: number): void {
     const first = map.keys().next().value;
     if (first === undefined) break;
     map.delete(first);
+  }
+}
+
+// 锁定到期表的有界管理：先清已到期的锁；仍超硬上限时淘汰「最早到期」的那几条
+// （让步最小：被提前释放的也只是锁定剩余时间最短的来源），保证表总有上限
+export function capExpiryMap(map: Map<string, number>, cap: number): void {
+  if (map.size <= 1000) return;
+  const now = Date.now();
+  for (const [k, until] of map) if (until <= now) map.delete(k);
+  while (map.size > cap) {
+    let oldestKey: string | undefined;
+    let oldestVal = Infinity;
+    for (const [k, until] of map) {
+      if (until < oldestVal) {
+        oldestVal = until;
+        oldestKey = k;
+      }
+    }
+    if (oldestKey === undefined) break;
+    map.delete(oldestKey);
   }
 }
 
@@ -301,10 +352,7 @@ export function recordLoginFailure(key: string): void {
   console.warn(`前台登录失败：来源 ${key}，近 10 分钟失败 ${list.length} 次`);
   if (list.length >= LOGIN_MAX_FAILURES) {
     loginLockedUntil.set(key, now + LOGIN_LOCK_MS);
-    // 锁定到期表也要有界：写入时顺带清掉已过期的锁，避免只进不出
-    if (loginLockedUntil.size > 1000) {
-      for (const [k, until] of loginLockedUntil) if (until <= now) loginLockedUntil.delete(k);
-    }
+    capExpiryMap(loginLockedUntil, 10000);
     loginFailures.set(key, []);
     console.warn(`前台登录失败过多：来源 ${key} 已锁定 30 分钟`);
   }

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { getAdminTokenSubject, sweepMap } from './auth';
+import { capExpiryMap, getAdminTokenSubject, sweepMap } from './auth';
 
 // 管理后台（仅服务端）：管理员口令只存环境变量 ADMIN_PASSWORD；
 // 管理员会话用独立 Cookie ft_admin，令牌主体固定为下面的标识，与普通账号会话区分。
@@ -75,11 +75,7 @@ export function recordAdminFailure(key: string): void {
   console.warn(`管理员登录失败：来源 ${key}，近 10 分钟失败 ${list.length} 次`);
   if (list.length >= envInt('ADMIN_MAX_FAILURES', 5)) {
     adminLockedUntil.set(key, Date.now() + LOCK_MS);
-    // 锁定到期表也要有界：写入时顺带清掉已过期的锁，避免只进不出
-    if (adminLockedUntil.size > 1000) {
-      const now = Date.now();
-      for (const [k, until] of adminLockedUntil) if (until <= now) adminLockedUntil.delete(k);
-    }
+    capExpiryMap(adminLockedUntil, 10000);
     adminFailures.set(key, []);
     console.warn(`管理员登录失败过多：来源 ${key} 已锁定 30 分钟`);
   }

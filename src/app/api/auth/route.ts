@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { findUser, normalizeUsername, verifyUserPassword } from '@/utils/users';
+import { findUser, verifyUserPassword } from '@/utils/users';
 import {
   clearLoginFailures,
   clientKey,
@@ -64,7 +64,23 @@ export async function POST(request: Request) {
 
     recordLoginAttempt(key);
 
-    if (!(await verifyUserPassword(username, password))) {
+    const verified = await verifyUserPassword(username, password);
+    if (!verified) {
+      recordLoginFailure(key);
+      return NextResponse.json(
+        { success: false, message: '账号或密码不正确' },
+        { status: 401 }
+      );
+    }
+
+    // 签发前复查（同步比对，比对完立刻签发、中间不留 await）：
+    // 验证期间管理员改了密或删了号，哈希/版本对不上快照，这次登录作废
+    const current = findUser(username);
+    if (
+      !current ||
+      current.hash !== verified.hash ||
+      (current.tokenVersion ?? 0) !== (verified.tokenVersion ?? 0)
+    ) {
       recordLoginFailure(key);
       return NextResponse.json(
         { success: false, message: '账号或密码不正确' },
@@ -74,8 +90,7 @@ export async function POST(request: Request) {
 
     clearLoginFailures(key);
 
-    const user = findUser(username);
-    const token = issueToken(user?.username ?? normalizeUsername(username), user?.tokenVersion ?? 0);
+    const token = issueToken(current.username, current.tokenVersion ?? 0);
     const res = NextResponse.json({ success: true });
     res.cookies.set('ft_session', token, {
       httpOnly: true,

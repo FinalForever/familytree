@@ -42,6 +42,32 @@ const AUTH_SECRET = 'smoke-test-secret-key-0123456789';
 const ADMIN_A = 'admin-pass-a';
 const ADMIN_B = 'admin-pass-b';
 
+// 哨兵：故意给父进程设一个不该被用到的 USERS_FILE——子进程环境里会被钉死到各自临时目录，
+// 结尾断言这个哨兵文件从未被创建，证明冒烟绝不会写到真实账号文件
+const SENTINEL_USERS_FILE = path.join(os.tmpdir(), 'ft-smoke-sentinel', 'users.json');
+process.env.USERS_FILE = SENTINEL_USERS_FILE;
+
+// 子进程清理：脚本异常退出时把拉起的 standalone 服务一并带走，不留孤儿进程
+const liveChildren = new Set();
+function killLiveChildren() {
+  for (const c of liveChildren) {
+    try {
+      c.kill('SIGKILL');
+    } catch {
+      // 已退出
+    }
+  }
+}
+process.on('exit', killLiveChildren);
+process.on('SIGINT', () => {
+  killLiveChildren();
+  process.exit(130);
+});
+process.on('SIGTERM', () => {
+  killLiveChildren();
+  process.exit(143);
+});
+
 let passed = 0;
 let failed = 0;
 function check(name, cond, extra = '') {
@@ -87,9 +113,14 @@ async function startServer({ settings, data, env, dir: reuseDir }) {
       DATA_DIR: path.join(dir, 'data'),
       AUTH_SECRET,
       ...env,
+      // 账号文件强制钉在本阶段的临时目录（在 ...env 之后，谁也别想覆盖）：
+      // users.ts 里 USERS_FILE 优先于 DATA_DIR，父环境若设了它，冒烟会写到真实账号文件
+      USERS_FILE: path.join(dir, 'data', 'users.json'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  liveChildren.add(child);
+  child.once('exit', () => liveChildren.delete(child));
   let logs = '';
   child.stdout.on('data', (d) => (logs += d));
   child.stderr.on('data', (d) => (logs += d));
@@ -386,6 +417,110 @@ console.log('阶段 F：慢发完整请求体正常处理');
     await srv.stop();
   }
 }
+
+// ---------- 阶段 G：吊销存储 fail-closed ----------
+console.log('阶段 G：吊销存储 fail-closed（损坏/写失败/无效令牌）');
+{
+  // G1：吊销文件损坏后重启，已吊销令牌不能复活，新会话也建不起来
+  const srv = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  const dirG = srv.dir;
+  try {
+    const reg = await postJson(srv.base, '/api/auth/register', { username: 'guser', password: 'password123' });
+    const token = cookieOf(reg, 'ft_session')?.value;
+    await postJson(srv.base, '/api/auth/logout', {}, { cookie: `ft_session=${token}` });
+    await srv.stop(true);
+    fs.writeFileSync(path.join(dirG, 'data', 'revoked-tokens.json'), '损坏的内容{{{');
+    const srv2 = await startServer({ dir: dirG, env: { ADMIN_PASSWORD: ADMIN_A } });
+    try {
+      const home = await getHome(srv2.base, token);
+      check('吊销文件损坏后已吊销令牌仍被拒', home.status === 200 && !home.text.includes(markerName));
+      const login = await postJson(srv2.base, '/api/auth', { username: 'guser', password: 'password123' });
+      const token2 = cookieOf(login, 'ft_session')?.value;
+      const home2 = await getHome(srv2.base, token2);
+      check('吊销文件损坏时新登录也建不了会话（fail-closed）', !home2.text.includes(markerName));
+      check('日志记录吊销表故障', srv2.logs().includes('吊销表'));
+    } finally {
+      await srv2.stop();
+    }
+  } finally {
+    await srv.stop(true).catch(() => undefined);
+  }
+
+  // G2：写盘失败时注销报 500、不假成功，令牌保持有效
+  const srv3 = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const reg1 = await postJson(srv3.base, '/api/auth/register', { username: 'gtwo1', password: 'password123' });
+    const t1 = cookieOf(reg1, 'ft_session')?.value;
+    const okOut = await postJson(srv3.base, '/api/auth/logout', {}, { cookie: `ft_session=${t1}` });
+    check('正常注销成功（吊销文件已生成）', okOut.status === 200, `实际 ${okOut.status}`);
+    const reg2 = await postJson(srv3.base, '/api/auth/register', { username: 'gtwo2', password: 'password123' });
+    const t2 = cookieOf(reg2, 'ft_session')?.value;
+    const revokedPath = path.join(srv3.dir, 'data', 'revoked-tokens.json');
+    fs.rmSync(revokedPath, { force: true });
+    fs.mkdirSync(revokedPath); // 用同名目录占位，让落盘的 rename 必然失败
+    const badOut = await postJson(srv3.base, '/api/auth/logout', {}, { cookie: `ft_session=${t2}` });
+    check('写盘失败时注销返回 500', badOut.status === 500, `实际 ${badOut.status}`);
+    const home = await getHome(srv3.base, t2);
+    check('注销失败后令牌保持有效（未假吊销）', home.text.includes(markerName));
+  } finally {
+    await srv3.stop();
+  }
+
+  // G3：无效令牌登出不写入吊销文件
+  const srv4 = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    for (let i = 0; i < 5; i += 1) {
+      await postJson(srv4.base, '/api/auth/logout', {}, { authorization: `Bearer junk-token-${i}` });
+    }
+    const p = path.join(srv4.dir, 'data', 'revoked-tokens.json');
+    const entries = fs.existsSync(p) ? Object.keys(JSON.parse(fs.readFileSync(p, 'utf8'))).length : 0;
+    check('无效令牌不写入吊销文件', entries === 0, `实际 ${entries} 条`);
+  } finally {
+    await srv4.stop();
+  }
+}
+
+// ---------- 阶段 H：登录验证与改密竞态（20 次并发） ----------
+console.log('阶段 H：登录/改密竞态循环');
+{
+  const srv = await startServer({ settings: {}, data: familyData, env: { ADMIN_PASSWORD: ADMIN_A } });
+  try {
+    const adminLogin = await postJson(srv.base, '/api/admin/login', { password: ADMIN_A });
+    const adminToken = cookieOf(adminLogin, 'ft_admin')?.value;
+    let raceOk = true;
+    for (let i = 0; i < 20; i += 1) {
+      const username = `race${i}`;
+      const key = { 'x-forwarded-for': `1.1.1.1, 9.9.9.${i}` };
+      await postJson(srv.base, '/api/auth/register', { username, password: 'oldpass123' }, key);
+      const [loginRes] = await Promise.all([
+        postJson(srv.base, '/api/auth', { username, password: 'oldpass123' }, key),
+        postJson(
+          srv.base,
+          '/api/admin/users/password',
+          { username, password: 'newpass456' },
+          { cookie: `ft_admin=${adminToken}` }
+        ),
+      ]);
+      if (loginRes.status === 200) {
+        const t = cookieOf(loginRes, 'ft_session')?.value;
+        const home = await getHome(srv.base, t);
+        if (home.text.includes(markerName)) raceOk = false;
+      }
+      const oldLogin = await postJson(srv.base, '/api/auth', { username, password: 'oldpass123' }, key);
+      if (oldLogin.status !== 401) raceOk = false;
+      const newLogin = await postJson(srv.base, '/api/auth', { username, password: 'newpass456' }, key);
+      if (newLogin.status !== 200) raceOk = false;
+    }
+    check('20 次竞态中旧密码从未签出有效会话且新密码可用', raceOk);
+    const users = JSON.parse(fs.readFileSync(path.join(srv.dir, 'data', 'users.json'), 'utf8'));
+    const names = users.map((u) => u.username);
+    check('竞态后账号文件 20 条无重复无丢失', names.length === 20 && new Set(names).size === 20, `实际 ${names.length} 条`);
+  } finally {
+    await srv.stop();
+  }
+}
+
+check('哨兵 USERS_FILE 从未被使用（冒烟未写真实账号文件）', !fs.existsSync(SENTINEL_USERS_FILE));
 
 console.log(`\n结果：${passed} 通过，${failed} 失败`);
 process.exit(failed ? 1 : 0);

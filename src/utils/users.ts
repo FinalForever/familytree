@@ -92,18 +92,22 @@ export async function createUser(username: string, password: string): Promise<Us
   });
 }
 
-export async function verifyUserPassword(username: string, password: string): Promise<boolean> {
+// 验证成功返回「实际验证过的那份账号记录」（含哈希与 tokenVersion 快照），失败返回 null。
+// 登录路由签发前会拿快照与当前记录比对：验证期间管理员改密/删号，哈希或版本一变就拒绝签发，
+// 避免旧密码蹭到改密后的新版本令牌。
+export async function verifyUserPassword(username: string, password: string): Promise<UserRecord | null> {
   // 超长口令直接判失败，不进 scrypt（合法口令在注册/改密时已被上限拦住）
-  if (!password || password.length > MAX_PASSWORD_LENGTH) return false;
+  if (!password || password.length > MAX_PASSWORD_LENGTH) return null;
   const user = findUser(username);
   if (!user) {
     // 账号不存在时也做一次等价计算，避免用响应时间泄露账号是否已注册
     await scryptAsync(password, '0'.repeat(32), 64);
-    return false;
+    return null;
   }
   const candidate = await scryptAsync(password, user.salt, 64);
   const stored = Buffer.from(user.hash, 'hex');
-  return candidate.length === stored.length && crypto.timingSafeEqual(candidate, stored);
+  const ok = candidate.length === stored.length && crypto.timingSafeEqual(candidate, stored);
+  return ok ? user : null;
 }
 
 export function isRegistrationOpen(): boolean {
