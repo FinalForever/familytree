@@ -44,8 +44,8 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # 只把仓库所有者本人的评论喂给 Claude，收窄提示注入面
-          
-          include_comments_by_actor: "FinalForever"
+                    include_comments_by_actor: "FinalForever"
+
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
             actions: read
