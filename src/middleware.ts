@@ -18,6 +18,17 @@ export function middleware(request: NextRequest) {
   const list = (hits.get(ip) || []).filter((t) => now - t < WINDOW_MS);
   list.push(now);
   hits.set(ip, list);
+  // 兜底清理：键只进不清会随来源数量线性涨，超上限时删全过期的键，仍超就丢最早的键
+  if (hits.size > 5000) {
+    for (const [key, l] of hits) {
+      if (!l.some((t) => now - t < WINDOW_MS)) hits.delete(key);
+    }
+    while (hits.size > 5000) {
+      const first = hits.keys().next().value;
+      if (first === undefined) break;
+      hits.delete(first);
+    }
+  }
 
   if (list.length > MAX_REQ) {
     return new NextResponse('Too Many Requests', { status: 429 });

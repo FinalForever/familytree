@@ -9,7 +9,7 @@ import {
   loginRateLimited,
   recordLoginAttempt,
   recordLoginFailure,
-  requestBodyTooLarge,
+  readJsonBody,
 } from '@/utils/auth';
 
 // 账号 + 密码登录：口令以 scrypt 哈希存于服务端账号文件，校验通过后
@@ -38,14 +38,14 @@ export async function POST(request: Request) {
       );
     }
 
-    if (requestBodyTooLarge(request)) {
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) {
       return NextResponse.json(
         { success: false, message: '请求体过大' },
         { status: 413 }
       );
     }
-
-    const body = await request.json().catch(() => ({}));
+    const body = parsed.body;
     const username = typeof body?.username === 'string' ? body.username : '';
     const password = typeof body?.password === 'string' ? body.password : '';
     if (!username || !password) {
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 
     recordLoginAttempt(key);
 
-    if (!verifyUserPassword(username, password)) {
+    if (!(await verifyUserPassword(username, password))) {
       recordLoginFailure(key);
       return NextResponse.json(
         { success: false, message: '账号或密码不正确' },

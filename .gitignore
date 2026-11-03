@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# 运行时数据（账号 users.json、站点设置 settings.json），绝不提交
+/data/
+
 # vercel
 .vercel
 

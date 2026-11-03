@@ -12,7 +12,7 @@ import {
   issueToken,
   loginRateLimited,
   recordLoginAttempt,
-  requestBodyTooLarge,
+  readJsonBody,
 } from '@/utils/auth';
 
 // 账号注册：受 REGISTRATION_OPEN 开关控制（设为 false 即关闭注册，改环境变量后重启容器生效）。
@@ -42,14 +42,14 @@ export async function POST(request: Request) {
       );
     }
 
-    if (requestBodyTooLarge(request)) {
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) {
       return NextResponse.json(
         { success: false, message: '请求体过大' },
         { status: 413 }
       );
     }
-
-    const body = await request.json().catch(() => ({}));
+    const body = parsed.body;
     const username = typeof body?.username === 'string' ? body.username : '';
     const password = typeof body?.password === 'string' ? body.password : '';
 
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = createUser(username, password);
+    const user = await createUser(username, password);
     const token = issueToken(user.username, user.tokenVersion ?? 0);
     const res = NextResponse.json({ success: true });
     res.cookies.set('ft_session', token, {

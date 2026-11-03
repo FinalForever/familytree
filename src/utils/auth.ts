@@ -36,8 +36,33 @@ function hmac(body: string, secret: string): string {
   return crypto.createHmac('sha256', secret).update(body).digest('base64url');
 }
 
+// —— 退出吊销表（内存）：注销时把令牌指纹记到它的过期时间为止，验签前先查 ——
+// 无状态令牌本身无法撤销，这张表让「退出」对被复制走的令牌同样生效（单实例部署够用）。
+const revokedTokens = new Map<string, number>();
+
+function tokenFingerprint(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+export function revokeToken(token: string | null | undefined): void {
+  if (!token) return;
+  let expMs = Date.now() + TOKEN_TTL_MS;
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString('utf8'));
+    if (typeof payload?.exp === 'number') expMs = payload.exp;
+  } catch {
+    // 载荷读不出就按默认时长记
+  }
+  revokedTokens.set(tokenFingerprint(token), expMs);
+  if (revokedTokens.size > 1000) {
+    const now = Date.now();
+    for (const [fp, exp] of revokedTokens) if (exp <= now) revokedTokens.delete(fp);
+  }
+}
+
 function parseToken(token: string | null | undefined, secret: string): TokenPayload | null {
   if (!token || !secret) return null;
+  if (revokedTokens.has(tokenFingerprint(token))) return null;
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [body, sig] = parts;
@@ -77,6 +102,21 @@ export function extractToken(request: Request): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+// 限流 Map 的兜底清理：键只进不清会随来源数量线性涨，超上限时先删全过期的键，仍超就丢最早的键
+const MAX_TRACKED_KEYS = 5000;
+export function sweepMap(map: Map<string, number[]>, windowMs: number): void {
+  if (map.size <= MAX_TRACKED_KEYS) return;
+  const now = Date.now();
+  for (const [key, list] of map) {
+    if (!list.some((t) => now - t < windowMs)) map.delete(key);
+  }
+  while (map.size > MAX_TRACKED_KEYS) {
+    const first = map.keys().next().value;
+    if (first === undefined) break;
+    map.delete(first);
+  }
+}
+
 // 登录限流（内存滑动窗口）：同一来源 10 分钟内最多 10 次尝试
 const attempts = new Map<string, number[]>();
 const WINDOW_MS = 10 * 60 * 1000;
@@ -95,6 +135,7 @@ export function loginRateLimited(key: string): boolean {
 
 export function recordLoginAttempt(key: string): void {
   recentAttempts(key).push(Date.now());
+  sweepMap(attempts, WINDOW_MS);
 }
 
 export function clientKey(request: Request): string {
@@ -116,6 +157,47 @@ export function clientKey(request: Request): string {
 export function requestBodyTooLarge(request: Request, limit = 16384): boolean {
   const len = Number(request.headers.get('content-length') || 0);
   return Number.isFinite(len) && len > limit;
+}
+
+// 读 JSON 请求体并按实际字节数限流：只看 Content-Length 挡不住分块传输的大请求，
+// 这里边读边计数，超限立刻取消读取并返回不 ok，由调用方回 413
+export async function readJsonBody(
+  request: Request,
+  limit = 16384
+): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false }> {
+  if (requestBodyTooLarge(request, limit)) return { ok: false };
+  const stream = request.body;
+  if (!stream) return { ok: true, body: {} };
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.byteLength;
+        if (total > limit) {
+          await reader.cancel().catch(() => undefined);
+          return { ok: false };
+        }
+        chunks.push(value);
+      }
+    }
+  } catch {
+    return { ok: true, body: {} };
+  }
+  const text = new TextDecoder().decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
+  if (!text) return { ok: true, body: {} };
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return {
+      ok: true,
+      body: parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {},
+    };
+  } catch {
+    return { ok: true, body: {} };
+  }
 }
 
 // 验签并取出令牌主体（账号名），无效返回 null
@@ -167,6 +249,7 @@ export function recordLoginFailure(key: string): void {
   const list = (loginFailures.get(key) || []).filter((t) => now - t < LOGIN_FAIL_WINDOW_MS);
   list.push(now);
   loginFailures.set(key, list);
+  sweepMap(loginFailures, LOGIN_FAIL_WINDOW_MS);
   console.warn(`前台登录失败：来源 ${key}，近 10 分钟失败 ${list.length} 次`);
   if (list.length >= LOGIN_MAX_FAILURES) {
     loginLockedUntil.set(key, now + LOGIN_LOCK_MS);

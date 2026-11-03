@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAdminRequest } from '@/utils/admin';
 import { getFamilyName, isRegistrationOpen, setRegistrationOpen } from '@/utils/users';
+import { readJsonBody } from '@/utils/auth';
 
 // 查询注册开关状态
 export async function GET(request: Request) {
@@ -25,7 +26,14 @@ export async function POST(request: Request) {
       { status: 401 }
     );
   }
-  const body = await request.json().catch(() => ({}));
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { success: false, message: '请求体过大' },
+      { status: 413 }
+    );
+  }
+  const body = parsed.body;
   if (typeof body?.open !== 'boolean') {
     return NextResponse.json(
       { success: false, message: '参数不正确' },

@@ -1,6 +1,14 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { promisify } from 'node:util';
+
+// 口令哈希用异步 scrypt：同步版会整段堵住事件循环，登录高峰或被刷时拖垮全站
+const scryptAsync = promisify(crypto.scrypt) as unknown as (
+  password: string,
+  salt: string,
+  keylen: number
+) => Promise<Buffer>;
 
 // 账号存储（仅服务端使用）：JSON 文件保存账号名 + scrypt 口令哈希，绝不存明文口令。
 // 文件位置：USERS_FILE 环境变量，或 DATA_DIR/users.json（Docker 里 DATA_DIR=/app/data，独立可写卷）。
@@ -50,9 +58,9 @@ export function findUser(username: string): UserRecord | undefined {
   return loadUsers().find((u) => u.username === normalized);
 }
 
-export function createUser(username: string, password: string): UserRecord {
+export async function createUser(username: string, password: string): Promise<UserRecord> {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  const hash = (await scryptAsync(password, salt, 64)).toString('hex');
   const record: UserRecord = {
     username: normalizeUsername(username),
     salt,
@@ -66,16 +74,16 @@ export function createUser(username: string, password: string): UserRecord {
   return record;
 }
 
-export function verifyUserPassword(username: string, password: string): boolean {
+export async function verifyUserPassword(username: string, password: string): Promise<boolean> {
   // 超长口令直接判失败，不进 scrypt（合法口令在注册/改密时已被上限拦住）
   if (!password || password.length > MAX_PASSWORD_LENGTH) return false;
   const user = findUser(username);
   if (!user) {
     // 账号不存在时也做一次等价计算，避免用响应时间泄露账号是否已注册
-    crypto.scryptSync(password, '0'.repeat(32), 64);
+    await scryptAsync(password, '0'.repeat(32), 64);
     return false;
   }
-  const candidate = crypto.scryptSync(password, user.salt, 64);
+  const candidate = await scryptAsync(password, user.salt, 64);
   const stored = Buffer.from(user.hash, 'hex');
   return candidate.length === stored.length && crypto.timingSafeEqual(candidate, stored);
 }
@@ -108,13 +116,13 @@ export function deleteUser(username: string): boolean {
   return true;
 }
 
-export function setUserPassword(username: string, password: string): boolean {
+export async function setUserPassword(username: string, password: string): Promise<boolean> {
   const normalized = normalizeUsername(username);
   const users = loadUsers();
   const user = users.find((u) => u.username === normalized);
   if (!user) return false;
   user.salt = crypto.randomBytes(16).toString('hex');
-  user.hash = crypto.scryptSync(password, user.salt, 64).toString('hex');
+  user.hash = (await scryptAsync(password, user.salt, 64)).toString('hex');
   // 改密即让此前签发的所有会话令牌失效
   user.tokenVersion = (user.tokenVersion ?? 0) + 1;
   saveUsers(users);

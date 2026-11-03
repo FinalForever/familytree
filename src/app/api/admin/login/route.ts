@@ -10,7 +10,7 @@ import {
   recordAdminAttempt,
   recordAdminFailure,
 } from '@/utils/admin';
-import { clientKey, issueAdminToken, requestBodyTooLarge } from '@/utils/auth';
+import { clientKey, isAuthConfigured, issueAdminToken, readJsonBody } from '@/utils/auth';
 
 // 管理员登录：口令只存服务端环境变量 ADMIN_PASSWORD，成功后下发独立的管理员会话 Cookie。
 // 防爆破：按来源限流 5 次/10 分钟；10 分钟内失败 5 次锁定该来源 30 分钟；失败尝试记入日志。
@@ -19,6 +19,14 @@ export async function POST(request: Request) {
     if (!isAdminConfigured()) {
       return NextResponse.json(
         { success: false, message: '后台未配置管理员口令（ADMIN_PASSWORD）' },
+        { status: 500 }
+      );
+    }
+    // 管理员令牌同样靠 AUTH_SECRET 签名：缺了它登录会「成功」却发出永远验不过的 Cookie，必须在这里拦下
+    if (!isAuthConfigured()) {
+      console.error('鉴权未配置 AUTH_SECRET，拒绝管理员登录');
+      return NextResponse.json(
+        { success: false, message: '服务器未完成安全配置（缺少 AUTH_SECRET），请联系管理员' },
         { status: 500 }
       );
     }
@@ -38,14 +46,14 @@ export async function POST(request: Request) {
       );
     }
 
-    if (requestBodyTooLarge(request)) {
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) {
       return NextResponse.json(
         { success: false, message: '请求体过大' },
         { status: 413 }
       );
     }
-
-    const body = await request.json().catch(() => ({}));
+    const body = parsed.body;
     const password = typeof body?.password === 'string' ? body.password : '';
     recordAdminAttempt(key);
 
