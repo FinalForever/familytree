@@ -11,7 +11,9 @@ services:
     container_name: familytree
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      # 只绑本机回环：默认经反向代理/隧道对外提供 HTTPS，不要把明文 HTTP 端口直接暴露到公网；
+      # 确需局域网直连时再改成 "3000:3000"，并自行加一层 HTTPS 反代
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
@@ -22,7 +24,7 @@ services:
       - CONFIG_DIR=/app/config
       - DATA_DIR=/app/data
       - REQUIRE_AUTH=true
-      - REGISTRATION_OPEN=true   # 注册开关：true 开放注册；改为 false 后重启容器即关闭注册（已有账号不受影响）
+      - REGISTRATION_OPEN=${REGISTRATION_OPEN:-true}   # 注册开关：默认开放；在 .env 或环境里设为 false 后重启容器即强制关闭（压过后台设置，已有账号不受影响）
     # 以下为容器加固：只读根文件系统、去掉全部 capabilities、禁止提权、资源上限
     read_only: true
     tmpfs:

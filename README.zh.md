@@ -53,7 +53,7 @@ docker compose up -d
 | --- | --- |
 | `AUTH_SECRET` | 会话令牌签名密钥（必填，随机长字符串） |
 | `ADMIN_PASSWORD` | 管理后台 `/admin` 的管理员口令 |
-| `REGISTRATION_OPEN` | 注册开关兜底值（`true`/`false`），后台设置优先 |
+| `REGISTRATION_OPEN` | 注册开关：设为 `false` 时强制关闭注册（压过后台设置）；其他情况后台设置优先 |
 
 数据与账号：
 
