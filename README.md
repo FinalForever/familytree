@@ -24,6 +24,17 @@
 - 一键开启/关闭前台注册（即时生效，无需重启）
 - 修改家族姓氏（即时生效）
 
+## 配套 App：「族谱编写」离线编辑器
+
+本项目配有一个离线族谱编辑器 App「族谱编写」，专门用来可视化编写族谱数据，不用对着 JSON 文本一行行手敲：
+
+- 按世代逐人录入，父亲从下拉列表里选，`id` 自动生成；`id` 重复、父亲不存在这类错误填写时当场指出
+- 导出即为与网站完全同格式的 `family-data.json`，放进网站的 `config/` 目录即可使用；网站现有的 `family-data.json` 也可以导入 App，在图上继续编辑
+- 内置世系树图与世代列表查看，编完立刻能看效果
+- 三个版本：Windows（解压后双击 exe 即用，免安装）、Android（APK 安装，最低 Android 7.0）、网页版（解压后用浏览器打开 `index.html`，任何系统可用）
+- 完全离线运行，不联网、不上传任何数据
+- 下载：本仓库的 [Releases 页面](https://github.com/FinalForever/familytree/releases)
+
 ## 安全改造（相对上游）
 
 - **数据防爬**：族谱数据改由服务端渲染注入页面，删除了可一次性拖走全部数据的 JSON 接口；全站限速（同一 IP 60 次/分钟）；robots 与响应头禁止搜索引擎收录
@@ -120,6 +131,10 @@ docker compose ps           # 状态显示 healthy 就是启动完成
 ## 数据格式（family-data.json 怎么写）
 
 族谱数据全部写在一个文件里：`config/family-data.json`。表格页和世系树图都读它，改完保存、刷新页面即时生效，不用重启。
+
+### 推荐：用配套 App「族谱编写」编写，不用手敲 JSON
+
+下面把格式逐项写清，是为了让你看懂数据长什么样；真要录入几百上千人时，不建议对着文本手敲 JSON——用配套 App「族谱编写」（见上文「配套 App」一节）按世代录入、从下拉里选父亲，App 会自动生成 `id` 并当场校验，导出的就是同格式的 `family-data.json`，直接放进 `config/` 即可。反过来，网站现有的 `family-data.json` 也能导入 App 继续编辑。下面的格式说明作为参考保留，遇到校验报错时对照着查。
 
 ### 整体结构：三层
 
@@ -227,6 +242,17 @@ The admin backend is the site's only management entry point and is fully separat
 - Turn public registration on or off with one click (takes effect immediately, no restart)
 - Change the family surname (takes effect immediately)
 
+## Companion app: "Family Tree Editor" (offline)
+
+This project ships with an offline companion editor app, **Family Tree Editor**, for editing genealogy data visually instead of typing JSON by hand:
+
+- Enter members generation by generation and pick each person's father from a dropdown; `id`s are generated automatically, and mistakes such as duplicate `id`s or a nonexistent father are flagged as you type
+- Exports exactly the same `family-data.json` format the website uses — drop the file into the website's `config/` folder and it just works; an existing `family-data.json` from the website can also be imported into the app for further editing
+- Built-in family tree graph and generation list views, so you can see the result as you edit
+- Three builds: Windows (unzip and double-click the exe, no installation), Android (APK, requires Android 7.0 or later), and a web build (unzip and open `index.html` in any browser)
+- Fully offline: it never connects to the network and uploads nothing
+- Download: the [Releases page](https://github.com/FinalForever/familytree/releases) of this repository
+
 ## Security changes (vs. upstream)
 
 - **Anti-scraping**: data is injected via server-side rendering; the JSON endpoint that returned the entire dataset in one call was removed. Site-wide rate limiting (60 requests/minute per IP); search engines are blocked via robots rules and response headers
@@ -323,6 +349,10 @@ Data and accounts:
 ## Data format (how to write family-data.json)
 
 All genealogy data lives in a single file: `config/family-data.json`. Both the generation lists and the tree graph read it; edits take effect on page refresh, no restart needed.
+
+### Recommended: use the companion app instead of typing JSON
+
+The format is documented in full below so you can see what the data looks like. For real data entry — hundreds or thousands of people — typing JSON by hand is not recommended: use the companion **Family Tree Editor** app (see the "Companion app" section above) to enter members generation by generation and pick fathers from a dropdown; `id`s are generated automatically and errors are caught on the spot. The app exports the same `family-data.json` format — just drop the file into `config/`. The other direction works too: import the website's existing `family-data.json` into the app and keep editing there. The format documentation below is kept as a reference, handy when a validation error needs tracking down.
 
 ### Structure: three levels
 
