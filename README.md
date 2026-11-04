@@ -1,5 +1,7 @@
 # 族谱（Family Tree）
 
+> 一个简洁的开源族谱网站项目。A minimalist open-source family tree website project.
+
 中文 | [English](#english)
 
 基于 [Next.js](https://nextjs.org) 的家族族谱展示网站。本仓库在上游开源项目 [qiaoshouqing/familytree](https://github.com/qiaoshouqing/familytree) 的基础上，做了完整的安全加固与账号化改造：族谱数据不再公开下发，必须登录账号才能查看，并配有管理后台。
@@ -115,9 +117,77 @@ docker compose ps           # 状态显示 healthy 就是启动完成
 - 族谱数据在 `config/family-data.json`，修改后即时生效、无需重启
 - 账号与站点设置存放在 `data/` 目录（`users.json`、`settings.json`、令牌吊销记录），请勿提交到仓库，也不要把真实数据提交到公开仓库
 
-## 数据格式
+## 数据格式（family-data.json 怎么写）
 
-`config/family-data.json` 为 `generations` 数组：每一世包含 `title`（如「第一世」）与 `people`，成员以 `id` 标识，并通过父母、配偶等字段的 id 建立关系。可参考仓库内的示例数据。
+族谱数据全部写在一个文件里：`config/family-data.json`。表格页和世系树图都读它，改完保存、刷新页面即时生效，不用重启。
+
+### 整体结构：三层
+
+```text
+最外层对象
+└─ generations        世代数组：一个元素 = 一世人，数组顺序就是页面从上往下的行序（第一世在最上面）
+   └─ { title, people }
+      ├─ title        这一世的标题，如 "第一世"，显示在页面左侧的世代标尺上
+      └─ people       本世全部成员的数组，同世内按数组顺序从左往右排
+         └─ 每人一个对象（字段见下表）
+```
+
+### 每个人有哪些字段
+
+| 字段 | 必填 | 类型 | 代表什么 |
+| --- | --- | --- | --- |
+| `id` | 是 | 字符串 | 这个人的唯一编号，全文件不许重复，父子关系全靠它认人。建议用拼音加连字符，如 `bai-jing-qi`，只用小写字母、数字和连字符 |
+| `name` | 是 | 字符串 | 姓名，显示在节点卡片和表格里 |
+| `info` | 是 | 字符串 | 一句话简介：写配偶、子女、生平事迹等，如 `"长子，妻王氏，生一子白占元"`。树图卡片最多显示 4 行，超出的悬停或点按可看全文 |
+| `fatherId` | 决定父子关系 | 字符串 | **父亲的 `id`**，必须和某位成员的 `id` 一字不差。树图的连线、折叠、搜索展开全靠它把人挂到父亲名下。始祖（第一世）没有父亲，就不写这一项 |
+| `birthYear` | 否 | 数字 | 出生年份，如 `1880`。是数字、不要加引号 |
+| `deathYear` | 否 | 数字 | 逝世年份；在世就不写这一项 |
+| `spouse` | 否 | 字符串 | 配偶姓名（也可以直接写进 `info` 里，效果一样） |
+
+注：类型定义里还有个 `children` 字段，那是为兼容老格式保留的，现在生成族谱树只看 `fatherId`，**不要写 `children`**，写了也不生效。
+
+### 一个完整小例子（两世、三个人）
+
+```json
+{
+  "generations": [
+    {
+      "title": "第一世",
+      "people": [
+        { "id": "bai-meng-xiong", "name": "白萌堂", "birthYear": 1820, "deathYear": 1900, "info": "始祖，妻李氏，生三子" }
+      ]
+    },
+    {
+      "title": "第二世",
+      "people": [
+        { "id": "bai-ying-yuan", "name": "白颖园", "info": "长子，妻王氏", "fatherId": "bai-meng-xiong" },
+        { "id": "bai-ying-xuan", "name": "白颖轩", "info": "次子，妻白文氏", "fatherId": "bai-meng-xiong" }
+      ]
+    }
+  ]
+}
+```
+
+看这个例子就懂了：白颖园、白颖轩的 `fatherId` 都填始祖的 id `bai-meng-xiong`，页面就知道他俩是白萌堂的儿子，树图上会自动连线挂在他名下。始祖本人不填 `fatherId`。
+
+### 手写数据的步骤
+
+1. 先写第一世：把始祖放进 `generations` 的第一个元素，`title` 写 `"第一世"`
+2. 逐世往下加：每新增一世就在 `generations` 里多加一个元素，`title` 依次写 `"第二世"`、`"第三世"`……
+3. 给每个人起一个全文件唯一的 `id`（先定好命名规则，如全用姓名拼音；后面引用父亲时要一字不差地照抄）
+4. 每个儿子、女儿的 `fatherId` 填他父亲的 `id`；同一位父亲的子女，建议在 `people` 里按长幼顺序紧挨着排列，树图会更整齐
+5. 写完先用任意 JSON 在线校验工具检查一遍格式，再替换 `config/family-data.json`
+
+### 写错会怎样（校验规则）
+
+服务端读取时会校验整份数据，不合规就整份不用、页面回退成空数据（不会只坏一半）。最常见的写错：
+
+- `id` 重复，或某个 `fatherId` 填的 id 在文件里根本不存在（这个人就挂不上树）
+- `fatherId` 填成自己、或父链绕成环（A 的父亲是 B、B 的父亲又是 A）
+- JSON 语法错误：多了或少了逗号、引号没闭合、年份数字加了引号被写成字符串
+- 把人放错世代：页面按 `generations` 分行显示，`fatherId` 只管连线、不管分行，放错世就会出现行与连线对不上
+
+真实数据往往很大（上千人很常见），建议从仓库自带的示例文件改起、少量多次替换，每次替换后刷新页面确认无误再继续。
 
 ## 致谢
 
@@ -132,6 +202,8 @@ MIT（沿用上游项目）
 ## English
 
 # Family Tree
+
+> 一个简洁的开源族谱网站项目。A minimalist open-source family tree website project.
 
 [中文](#族谱family-tree) | English
 
@@ -248,9 +320,77 @@ Data and accounts:
 - Genealogy data lives in `config/family-data.json` and takes effect immediately after editing, no restart needed
 - Accounts and site settings are stored under `data/` (`users.json`, `settings.json`, token revocation records); do not commit them, and never commit real family data to a public repository
 
-## Data format
+## Data format (how to write family-data.json)
 
-`config/family-data.json` holds a `generations` array: each generation has a `title` (e.g. "Generation 1") and `people`; members carry an `id` and reference parents/spouses by id. See the sample data in the repository.
+All genealogy data lives in a single file: `config/family-data.json`. Both the generation lists and the tree graph read it; edits take effect on page refresh, no restart needed.
+
+### Structure: three levels
+
+```text
+Root object
+└─ generations        Array of generations: one element = one generation, in display order (generation 1 first, top row)
+   └─ { title, people }
+      ├─ title        The generation's label, e.g. "Generation 1", shown on the generation ruler
+      └─ people       Array of this generation's members, displayed left to right in array order
+         └─ one object per person (fields below)
+```
+
+### Person fields
+
+| Field | Required | Type | Meaning |
+| --- | --- | --- | --- |
+| `id` | Yes | string | Unique identifier for this person across the whole file; parent-child links work by referencing it. Use lowercase letters, digits and hyphens, e.g. `bai-jing-qi` |
+| `name` | Yes | string | The person's name, shown on tree cards and in the lists |
+| `info` | Yes | string | One-line biography: spouse, children, life notes, e.g. `"Eldest son, wife Wang, one son"`. Tree cards show at most 4 lines; hover or tap to read the full text |
+| `fatherId` | Defines the tree | string | **The father's `id`**, spelled exactly as that member's `id`. Tree lines, collapsing and search expansion all hang members under their father through this field. The founder (generation 1) has no father — omit it |
+| `birthYear` | No | number | Year of birth, e.g. `1880`. A number, without quotes |
+| `deathYear` | No | number | Year of death; omit for living persons |
+| `spouse` | No | string | Spouse's name (writing it into `info` works just as well) |
+
+Note: the type definition also has a legacy `children` field kept for compatibility with the old format. The tree is built from `fatherId` only — **do not write `children`**; it is ignored.
+
+### A complete small example (two generations, three people)
+
+```json
+{
+  "generations": [
+    {
+      "title": "Generation 1",
+      "people": [
+        { "id": "bai-meng-xiong", "name": "Bai Mengtang", "birthYear": 1820, "deathYear": 1900, "info": "Founder, wife Li, three sons" }
+      ]
+    },
+    {
+      "title": "Generation 2",
+      "people": [
+        { "id": "bai-ying-yuan", "name": "Bai Yingyuan", "info": "Eldest son, wife Wang", "fatherId": "bai-meng-xiong" },
+        { "id": "bai-ying-xuan", "name": "Bai Yingxuan", "info": "Second son, wife Wen", "fatherId": "bai-meng-xiong" }
+      ]
+    }
+  ]
+}
+```
+
+Both sons carry `fatherId: "bai-meng-xiong"` — that is how the page knows they are the founder's sons and draws them under him in the tree. The founder himself has no `fatherId`.
+
+### Writing your own data, step by step
+
+1. Start with generation 1: put the founder in the first element of `generations`, with `title` set to `"Generation 1"` (or the equivalent in your language)
+2. Add one element per further generation, titling them "Generation 2", "Generation 3", …
+3. Give every person a file-wide unique `id` (pick a naming rule first, e.g. romanized names; `fatherId` references must copy it character for character)
+4. Set each child's `fatherId` to their father's `id`; keep siblings adjacent in `people`, ordered by age, so the tree layout stays tidy
+5. Validate the file with any online JSON validator before replacing `config/family-data.json`
+
+### What happens if the data is invalid
+
+The server validates the whole file on load; invalid data is rejected as a whole and the page falls back to an empty tree (it never breaks "half-way"). The most common mistakes:
+
+- A duplicated `id`, or a `fatherId` pointing at an `id` that does not exist in the file (that person cannot be attached to the tree)
+- A `fatherId` pointing at the person themself, or a cycle (A's father is B, B's father is A)
+- JSON syntax errors: missing/extra commas, unclosed quotes, years written as quoted strings instead of numbers
+- Putting a person in the wrong generation: rows come from `generations`, while `fatherId` only draws the links — a misplaced person ends up on a row that does not match their links
+
+Real datasets are often large (a thousand people is common). Start from the sample file shipped in the repository and replace it in small increments, refreshing the page after each step to confirm everything still renders.
 
 ## Acknowledgments
 
