@@ -55,14 +55,14 @@ async function loadConfigOnServer<T>(filename: string, defaultConfig: T): Promis
 function getAuthConfigOnServerFromEnv(): AuthConfig {
   return {
     requireAuth: process.env.REQUIRE_AUTH === 'true' || process.env.NEXT_PUBLIC_REQUIRE_AUTH === 'true',
-    familyName: process.env.NEXT_PUBLIC_FAMILY_NAME || '姓氏'
+    familyName: process.env.NEXT_PUBLIC_FAMILY_NAME || '白'
   };
 }
 
 // 从环境变量读取客户端公开配置
 function getPublicConfigFromEnv(): PublicConfig {
   return {
-    familyName: process.env.NEXT_PUBLIC_FAMILY_NAME || '姓氏',
+    familyName: process.env.NEXT_PUBLIC_FAMILY_NAME || '白',
     isAuthRequired: process.env.NEXT_PUBLIC_REQUIRE_AUTH === 'true'
   };
 }

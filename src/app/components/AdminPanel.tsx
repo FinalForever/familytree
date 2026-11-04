@@ -179,7 +179,7 @@ export default function AdminPanel() {
               type="text"
               required
               maxLength={4}
-              placeholder="如：陈"
+              placeholder="如：白"
               className="w-40 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               value={familyNameInput}
               onChange={(e) => setFamilyNameInput(e.target.value)}
