@@ -25,6 +25,13 @@ services:
       - DATA_DIR=/app/data
       - REQUIRE_AUTH=true
       - REGISTRATION_OPEN=${REGISTRATION_OPEN:-true}   # 注册开关：默认开放；在 .env 或环境里设为 false 后重启容器即强制关闭（压过后台设置，已有账号不受影响）
+      # —— 密钥参数看这里（小白版说明）——
+      # AUTH_SECRET（会话签名密钥）和 ADMIN_PASSWORD（管理后台口令）这两个必填项，
+      # 默认写在同目录的 .env 文件里（把 .env.local.example 复制为 .env 再改值即可）。
+      # 如果你不想用 .env，也可以把下面两行最前面的「#」删掉、直接把值写在本文件里：
+      # 本文件中 environment 的值优先于 .env，写在这里后，.env 里的同名项就不用管了。
+      # - AUTH_SECRET=换成你的随机长字符串（至少 16 位，终端运行 openssl rand -hex 32 可生成）
+      # - ADMIN_PASSWORD=换成你的管理员口令（登录 /admin 后台用，不填则后台登不进去）
     # 以下为容器加固：只读根文件系统、去掉全部 capabilities、禁止提权、资源上限
     read_only: true
     tmpfs:

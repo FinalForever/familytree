@@ -38,27 +38,82 @@ cp .env.local.example .env.local   # 按需填写
 npm run dev
 ```
 
-## Docker 部署
+## Docker 部署（推荐方式）
+
+镜像已由 GitHub Actions 预构建并发布在 GHCR，部署时自动拉取，不需要在你的机器上编译代码；amd64 与 arm64 均支持。整个过程就三步：
+
+### 第一步：准备
+
+- 机器上装好 Docker（带 Compose 插件）：终端里 `docker --version` 和 `docker compose version` 都能输出版本号即可
+- 拿到代码：`git clone https://github.com/FinalForever/familytree.git` 后 `cd familytree`（或下载 zip 解压后进入目录）
+
+### 第二步：填配置（只需改两项必填）
 
 ```bash
-cp .env.local.example .env         # 填写 AUTH_SECRET 与 ADMIN_PASSWORD
-docker compose up -d
+cp .env.local.example .env   # 复制一份配置文件
 ```
-镜像由 GitHub Actions 预构建并发布在 GHCR（`ghcr.io/finalforever/familytree:latest`），`up` 时自动拉取，无需本地构建；amd64 与 arm64 均支持。想改源码自行构建的话，见 `docker-compose.yml` 里的注释。
+
+用任意文本编辑器打开 `.env`，至少改好这两项（文件里每一项都有中文说明）：
+
+- `AUTH_SECRET`：会话签名密钥，至少 16 位的随机长字符串，终端运行 `openssl rand -hex 32` 可现成生成一条
+- `ADMIN_PASSWORD`：管理后台 `/admin` 的口令，部署完登录后台就用它；不填这一项，后台登不进去
+
+改参数有两种方式，任选其一：默认改 `.env`（推荐）；或者直接写在 `docker-compose.yml` 里——文件中的 environment 一节有注释标明写法，那里写的值优先于 `.env`。
+
+### 第三步：启动
+
+```bash
+docker compose up -d        # 拉镜像并启动
+docker compose ps           # 状态显示 healthy 就是启动完成
+```
+
+浏览器打开 `http://localhost:3000`，能看到登录页就成功了。
+
+### 部署完先做这几件事
+
+1. 打开 `http://localhost:3000/admin`，用刚填的 `ADMIN_PASSWORD` 登录后台
+2. 把家族姓氏改成你家的（保存后即时生效）
+3. 决定注册开关：想让家人自己注册账号就保持开放；想只由你发账号就在后台关掉注册
+4. 换上自己的族谱数据：把你的 `family-data.json` 放到 `config/` 目录覆盖自带的示例数据（格式见下一节），改完即时生效、不用重启
+
+### 怎么从别的设备访问
+
+默认只监听本机 `127.0.0.1:3000`，这是安全默认：
+
+- **局域网访问**：把 `docker-compose.yml` 里端口一行改成 `"3000:3000"` 并重启，同一局域网内用 `http://机器的局域网IP:3000` 打开。注意这是明文 HTTP，只建议在可信的家里局域网这样用
+- **公网访问**：强烈建议在前面套一层带 HTTPS 的反向代理（如 Nginx、Caddy）或隧道（如 Cloudflare Tunnel），不要把 3000 端口明文直接暴露到公网
+
+### 日常运维
+
+- 看日志：`docker compose logs -f`
+- 重启：`docker compose restart`（改了 `.env` 或 compose 后用 `docker compose up -d` 让新配置生效）
+- 更新到最新版：`docker compose pull && docker compose up -d`——账号和族谱数据都在 `config/`、`data/` 目录里，不会随更新丢失
+- 备份：把 `config/` 和 `data/` 两个目录打包带走即可；恢复时放回原位重启
+- 停止：`docker compose down`（只停容器，数据保留在目录里）
+
+### 常见问题
+
+- **`/admin` 登不进去**：多半是 `.env` 里没填 `ADMIN_PASSWORD`，或改完配置没重启容器（改完执行一次 `docker compose up -d`）
+- **容器反复重启、页面报 500**：先看日志（`docker compose logs`）；最常见是 `AUTH_SECRET` 没填或短于 16 位
+- **提示 3000 端口被占用**：把 compose 里端口映射左边的数字换一个，如 `"8080:3000"`，访问地址随之改成 8080 端口
+- **换了族谱数据页面没变**：确认文件放在 `config/` 目录且是合法 JSON；格式坏了页面会回退成空数据，先在本机用 JSON 校验工具检查一遍
+
+想改源码自行构建镜像的话，见 `docker-compose.yml` 里的注释。
 
 
-主要环境变量（`.env`）：
+主要环境变量（`.env`，每一项在示例文件里都有详细注释）：
 
-| 变量 | 说明 |
-| --- | --- |
-| `AUTH_SECRET` | 会话令牌签名密钥（必填，随机长字符串） |
-| `ADMIN_PASSWORD` | 管理后台 `/admin` 的管理员口令 |
-| `REGISTRATION_OPEN` | 注册开关：设为 `false` 时强制关闭注册（压过后台设置）；其他情况后台设置优先 |
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `AUTH_SECRET` | 是 | 会话令牌签名密钥，至少 16 位的随机长字符串（`openssl rand -hex 32` 生成） |
+| `ADMIN_PASSWORD` | 是 | 管理后台 `/admin` 的管理员口令，不填则后台无法登录 |
+| `REGISTRATION_OPEN` | 否 | 注册开关：设为 `false` 时强制关闭注册（压过后台设置）；其他情况后台设置优先 |
+| `REQUIRE_AUTH` | 否 | 是否必须登录才能查看，保持 `true` 即可，改成 `false` 等于公开族谱 |
 
 数据与账号：
 
 - 族谱数据在 `config/family-data.json`，修改后即时生效、无需重启
-- 账号与站点设置存放在 `data/` 目录（`users.json`、`settings.json`），请勿提交到仓库
+- 账号与站点设置存放在 `data/` 目录（`users.json`、`settings.json`、令牌吊销记录），请勿提交到仓库，也不要把真实数据提交到公开仓库
 
 ## 数据格式
 
@@ -116,27 +171,82 @@ cp .env.local.example .env.local   # fill in as needed
 npm run dev
 ```
 
-## Docker deployment
+## Docker deployment (recommended)
+
+The image is prebuilt by GitHub Actions and published to GHCR (`ghcr.io/finalforever/familytree:latest`); deployment pulls it automatically — nothing to compile on your machine. Both amd64 and arm64 are supported. Three steps:
+
+### 1. Prerequisites
+
+- Docker with the Compose plugin installed (`docker --version` and `docker compose version` should both print versions)
+- Get the code: `git clone https://github.com/FinalForever/familytree.git`, then `cd familytree` (or unzip the downloaded archive)
+
+### 2. Configure (only two values are required)
 
 ```bash
-cp .env.local.example .env         # set AUTH_SECRET and ADMIN_PASSWORD
-docker compose up -d
+cp .env.local.example .env   # create your config file
 ```
-The image is prebuilt by GitHub Actions and published to GHCR (`ghcr.io/finalforever/familytree:latest`); `up` pulls it automatically — no local build needed. Both amd64 and arm64 are supported. To build from source instead, see the comments in `docker-compose.yml`.
+
+Open `.env` in any text editor and set at least:
+
+- `AUTH_SECRET` — signing key for session tokens, a random string of at least 16 characters; generate one with `openssl rand -hex 32`
+- `ADMIN_PASSWORD` — password for the admin backend at `/admin`; without it, the backend cannot be signed into
+
+Two equivalent ways to set values: edit `.env` (recommended), or write them directly in `docker-compose.yml` — the `environment` section there has comments showing how, and values set there take precedence over `.env`.
+
+### 3. Start
+
+```bash
+docker compose up -d     # pull the image and start
+docker compose ps        # wait until the status shows "healthy"
+```
+
+Open `http://localhost:3000` in a browser; the sign-in page means you are up.
+
+### First things to do after deploying
+
+1. Open `http://localhost:3000/admin` and sign in with the `ADMIN_PASSWORD` you just set
+2. Change the family surname to yours (takes effect immediately)
+3. Decide on registration: leave it open so family members can register themselves, or turn it off in the backend and issue accounts yourself
+4. Replace the sample data: put your own `family-data.json` into the `config/` folder (format described below); changes take effect immediately, no restart needed
+
+### Reaching it from other devices
+
+By default the site only listens on `127.0.0.1:3000` of the host — a safe default:
+
+- **LAN access**: change the port line in `docker-compose.yml` to `"3000:3000"` and restart; then use `http://<host LAN IP>:3000`. Note this is plain HTTP — only do this on a trusted home network
+- **Public access**: put an HTTPS reverse proxy (Nginx, Caddy, …) or a tunnel (e.g. Cloudflare Tunnel) in front; do not expose port 3000 to the internet as plain HTTP
+
+### Day-to-day operations
+
+- Logs: `docker compose logs -f`
+- Restart: `docker compose restart` (after editing `.env` or the compose file, run `docker compose up -d` so the new values apply)
+- Update to the latest version: `docker compose pull && docker compose up -d` — accounts and genealogy data live in the `config/` and `data/` folders and survive updates
+- Backup: archive the `config/` and `data/` folders; restore by putting them back and restarting
+- Stop: `docker compose down` (containers stop; data stays in the folders)
+
+### Troubleshooting
+
+- **Cannot sign in to /admin**: usually `ADMIN_PASSWORD` is missing from `.env`, or the container was not restarted after editing it (run `docker compose up -d` once)
+- **Container keeps restarting / pages return 500**: check the logs (`docker compose logs`); the most common cause is a missing `AUTH_SECRET` or one shorter than 16 characters
+- **Port 3000 already in use**: change the left-hand number of the port mapping, e.g. `"8080:3000"`, and browse to port 8080 instead
+- **Replaced the data but the page did not change**: make sure the file is in `config/` and is valid JSON; malformed data makes the page fall back to an empty tree
+
+To build the image from source instead, see the comments in `docker-compose.yml`.
 
 
-Main environment variables (`.env`):
+Main environment variables (`.env`; every entry is commented in detail in the example file):
 
-| Variable | Description |
-| --- | --- |
-| `AUTH_SECRET` | Signing key for session tokens (required, long random string) |
-| `ADMIN_PASSWORD` | Password for the admin backend at `/admin` |
-| `REGISTRATION_OPEN` | Registration switch: `false` force-closes registration (overrides the admin-backend setting); otherwise the backend setting takes precedence |
+| Variable | Required | Description |
+| --- | --- | --- |
+| `AUTH_SECRET` | Yes | Signing key for session tokens, a random string of at least 16 characters (generate with `openssl rand -hex 32`) |
+| `ADMIN_PASSWORD` | Yes | Password for the admin backend at `/admin`; without it the backend cannot be signed into |
+| `REGISTRATION_OPEN` | No | Registration switch: `false` force-closes registration (overrides the admin-backend setting); otherwise the backend setting takes precedence |
+| `REQUIRE_AUTH` | No | Whether sign-in is required to view the tree; keep `true` — `false` makes the genealogy public |
 
 Data and accounts:
 
 - Genealogy data lives in `config/family-data.json` and takes effect immediately after editing, no restart needed
-- Accounts and site settings are stored under `data/` (`users.json`, `settings.json`); do not commit them
+- Accounts and site settings are stored under `data/` (`users.json`, `settings.json`, token revocation records); do not commit them, and never commit real family data to a public repository
 
 ## Data format
 
