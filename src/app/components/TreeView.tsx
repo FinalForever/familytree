@@ -245,11 +245,15 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     // 内容中的位置 = pad + coord * zoom（pad 为四周补偿边距），让它落到视口正中，
     // 即 scroll = pad + coord * zoom - 视口尺寸 / 2。pad 有一整屏大小，目标滚动量
     // 恒在可达范围内，不会被浏览器截断，居中不会偏。
-    box.scrollTo({
-      left: padRef.current.l + node.cx * s - box.clientWidth / 2,
-      top: padRef.current.t + (node.top + NODE_H / 2) * s - box.clientHeight / 2,
-      behavior: 'smooth',
-    });
+    // 目标点再过一遍边界钳制（见 clampScroll）：按包围盒几何，成员居中目标恒在
+    // 界内（横向余量 >= 88*s + vw/2 - mx > 0，纵向 >= 64*s + vh/2 - my > 0），
+    // 这里只是防御性收口，实际不会改动落点。
+    const [fl, ft] = clampScroll(
+      padRef.current.l + node.cx * s - box.clientWidth / 2,
+      padRef.current.t + (node.top + NODE_H / 2) * s - box.clientHeight / 2,
+      s
+    );
+    box.scrollTo({ left: fl, top: ft, behavior: 'smooth' });
     setFlashId(node.id);
     window.setTimeout(() => setFlashId((cur) => (cur === node.id ? null : cur)), FOCUS_FLASH_MS);
   };
@@ -273,8 +277,9 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     const dy = e.clientY - d.y;
     if (!d.panning && Math.hypot(dx, dy) > 4) d.panning = true;
     if (d.panning) {
-      box.scrollLeft = d.sl - dx;
-      box.scrollTop = d.st - dy;
+      const [cl, ct] = clampScroll(d.sl - dx, d.st - dy, zoomRef.current);
+      box.scrollLeft = cl;
+      box.scrollTop = ct;
     }
   };
   const onLabelPointerUp = (e: ReactPointerEvent<HTMLElement>) => {
@@ -316,6 +321,55 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
 
+  // —— 滚动边界约束：内容不许被拖/滚出整屏空白 ——
+  // 不变量：任意滚动/缩放状态下，已渲染节点包围盒与图框视口在横、纵两轴上的
+  // 重叠都不小于 min(160px, 视口该轴长的 1/3)。pad 仍保留一整屏（缩放锚点
+  // 需要，见 applyZoomAt），但所有写 scrollLeft/scrollTop 的路径都先过这里钳制，
+  // 另有 onScroll 安全网兜住原生触摸/键盘滚动。到达边界硬停，无橡皮筋动画。
+  // 钳制对缩放锚点的影响：只要缩放前视图满足不变量（本钳制归纳保证），光标
+  // 落在真实内容上时理想滚动量恒在界内、锚点精确零截断；仅当光标悬在内容外
+  // 的空白边距上时理想量才可能越界被钳，单步偏差 <= (轴长 - m) * (s1/s0 - 1)，
+  // 且每步都从实际滚动位置重新算锚点，偏差不累积。
+  const OVERLAP_MIN = 160;
+  const clampScroll = (sl: number, st: number, s: number): [number, number] => {
+    const box = scrollRef.current;
+    const nodes = layoutRef.current.nodes;
+    if (!box || !nodes.length) return [sl, st];
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    nodes.forEach((n) => {
+      x0 = Math.min(x0, n.cx - NODE_W / 2);
+      x1 = Math.max(x1, n.cx + NODE_W / 2);
+      y0 = Math.min(y0, n.top);
+      y1 = Math.max(y1, n.top + NODE_H);
+    });
+    const vw = box.clientWidth;
+    const vh = box.clientHeight;
+    const mx = Math.min(OVERLAP_MIN, vw / 3);
+    const my = Math.min(OVERLAP_MIN, vh / 3);
+    const pl = padRef.current.l;
+    const pt = padRef.current.t;
+    // 视口左沿在 sl 时，横向重叠 = min(pl + x1*s, sl + vw) - max(pl + x0*s, sl)。
+    // 令重叠 >= mx：内容左沿滑出右侧时 sl >= pl + x0*s + mx - vw（下限），
+    // 内容右沿滑出左侧时 sl <= pl + x1*s - mx（上限）。纵向同理。
+    // 因 mx <= 轴长/3，下限恒 <= 上限，钳制区间永不为空。
+    const slMin = pl + x0 * s + mx - vw;
+    const slMax = pl + x1 * s - mx;
+    const stMin = pt + y0 * s + my - vh;
+    const stMax = pt + y1 * s - my;
+    return [
+      Math.max(slMin, Math.min(sl, slMax)),
+      Math.max(stMin, Math.min(st, stMax)),
+    ];
+  };
+  // 安全网：把当前滚动位置拉回界内（只在越界时写，写后必收敛，不会循环）
+  const applyClamp = () => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const [cl, ct] = clampScroll(box.scrollLeft, box.scrollTop, zoomRef.current);
+    if (cl !== box.scrollLeft) box.scrollLeft = cl;
+    if (ct !== box.scrollTop) box.scrollTop = ct;
+  };
+
   const applyZoomAt = (next: number, vx: number, vy: number) => {
     const box = scrollRef.current;
     const size = sizeRef.current;
@@ -335,8 +389,11 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     cv.style.transform = `scale(${s1})`;
     size.style.width = `${layoutRef.current.width * s1}px`;
     size.style.height = `${layoutRef.current.height * s1}px`;
-    box.scrollLeft = pl + cx * s1 - vx;
-    box.scrollTop = pt + cy * s1 - vy;
+    // 写入前按新缩放比钳制：锚点在内容上时恒不触发（见 clampScroll 注释），
+    // 只有锚点落在内容外空白边距时才以边界优先，保证缩放后不留整屏空白。
+    const [zl, zt] = clampScroll(pl + cx * s1 - vx, pt + cy * s1 - vy, s1);
+    box.scrollLeft = zl;
+    box.scrollTop = zt;
     syncLabels();
     if (pctRef.current) pctRef.current.textContent = `${Math.round(s1 * 100)}%`;
   };
@@ -433,9 +490,11 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
       }
     };
     applyPad();
+    applyClamp();
     syncLabels();
     const ro = new ResizeObserver(() => {
       applyPad();
+      applyClamp();
       syncLabels();
     });
     ro.observe(box);
@@ -454,6 +513,8 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
   }, []);
 
   useEffect(() => {
+    // 布局变化（展开/折叠）会改变包围盒，旧滚动位置可能越出新边界，先钳回再同步标尺
+    applyClamp();
     syncLabels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout]);
@@ -606,13 +667,13 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           </div>
         </div>
         <p className="text-xs text-gray-400 mb-4">
-          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），按住拖动平移；左侧世代标尺固定不动，横向滑远了也能对照世代，点击标尺上的某个世代会逐个定位到本世成员（再点一次跳到下一位）；信息显示不全的卡片，悬停或点按可看全文气泡。
+          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），按住拖动平移（有边界，不会拖出整屏空白）；左侧世代标尺固定不动，横向滑远了也能对照世代，点击标尺上的某个世代会逐个定位到本世成员（再点一次跳到下一位）；信息显示不全的卡片，悬停或点按可看全文气泡。
         </p>
         <div className="relative">
         <div
           className="tree-hscroll rounded-md cursor-grab active:cursor-grabbing select-none"
           ref={scrollRef}
-          onScroll={() => syncLabels()}
+          onScroll={() => { applyClamp(); syncLabels(); }}
           style={{ height: 'min(80vh, 1200px)' }}
           onPointerDown={(e) => {
             if (e.pointerType !== 'mouse' || e.button !== 0) return;
@@ -628,8 +689,9 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
             const dy = e.clientY - d.y;
             if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
             if (d.moved) {
-              box.scrollLeft = d.sl - dx;
-              box.scrollTop = d.st - dy;
+              const [cl, ct] = clampScroll(d.sl - dx, d.st - dy, zoomRef.current);
+              box.scrollLeft = cl;
+              box.scrollTop = ct;
             }
           }}
           onPointerUp={() => {
