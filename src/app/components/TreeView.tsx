@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { FamilyData, Person } from '@/types/family';
 import { highlightMatch } from '@/utils/search';
 import { ANIMATION_DELAYS, CSS_CLASSES } from '@/utils/constants';
@@ -126,6 +127,12 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     setCollapsed(model.initialCollapsed);
   }, [model]);
 
+  // 世代标尺点击定位的逐世轮转记忆（depth -> 下一位下标）；数据变化时清空
+  const genCycleRef = useRef<Map<number, number>>(new Map());
+  useEffect(() => {
+    genCycleRef.current.clear();
+  }, [model]);
+
   // 整齐树布局：叶子按顺序占槽，父节点居中于其所有子节点之上
   const layout = useMemo(() => {
     const placed = new Map<string, PlacedNode>();
@@ -215,6 +222,69 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
         window.setTimeout(() => setFlashId((cur) => (cur === id ? null : cur)), ANIMATION_DELAYS.HIGHLIGHT_DURATION);
       }
     }, 80);
+  };
+
+  // —— 世代标尺点击定位：逐个轮转本世当前已渲染的成员 ——
+  // 顺序按布局横坐标 cx 升序（槽位从左到右），即从离标尺最近的一位开始；
+  // 被折叠隐藏的成员不在 layout.nodes 里，天然不参与轮转。
+  // 轮转下标按世代分别记在 genCycleRef 里，手动拖动/缩放不会重置（ref 不随渲染变），
+  // 点到末位后绕回第一位（下标对成员数取模）。
+  const FOCUS_FLASH_MS = 1200; // 定位高亮时长，与搜索用的 2 秒区分
+  const focusNextInGeneration = (depth: number) => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const members = layoutRef.current.nodes
+      .filter((n) => n.depth === depth)
+      .sort((a, b) => a.cx - b.cx);
+    if (!members.length) return;
+    const idx = (genCycleRef.current.get(depth) ?? 0) % members.length;
+    genCycleRef.current.set(depth, idx + 1);
+    const node = members[idx];
+    const s = zoomRef.current;
+    // 居中公式与 applyZoomAt 的滚动换算同属一个坐标系：内容点 (cx, cy) 在滚动
+    // 内容中的位置 = pad + coord * zoom（pad 为四周补偿边距），让它落到视口正中，
+    // 即 scroll = pad + coord * zoom - 视口尺寸 / 2。pad 有一整屏大小，目标滚动量
+    // 恒在可达范围内，不会被浏览器截断，居中不会偏。
+    box.scrollTo({
+      left: padRef.current.l + node.cx * s - box.clientWidth / 2,
+      top: padRef.current.t + (node.top + NODE_H / 2) * s - box.clientHeight / 2,
+      behavior: 'smooth',
+    });
+    setFlashId(node.id);
+    window.setTimeout(() => setFlashId((cur) => (cur === node.id ? null : cur)), FOCUS_FLASH_MS);
+  };
+
+  // 标尺标签可点击后，从标签上起手的拖动不能丢：标签自己接管指针，
+  // 位移超过阈值就把拖动转发成图框滚动（等价于在图上拖动平移），
+  // 按下-抬起位移 < 8px 才算一次点击、触发定位。
+  const labelDragRef = useRef<{ depth: number; x: number; y: number; sl: number; st: number; panning: boolean } | null>(null);
+  const onLabelPointerDown = (e: ReactPointerEvent<HTMLElement>, depth: number) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const box = scrollRef.current;
+    if (!box) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    labelDragRef.current = { depth, x: e.clientX, y: e.clientY, sl: box.scrollLeft, st: box.scrollTop, panning: false };
+  };
+  const onLabelPointerMove = (e: ReactPointerEvent<HTMLElement>) => {
+    const d = labelDragRef.current;
+    const box = scrollRef.current;
+    if (!d || !box) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.panning && Math.hypot(dx, dy) > 4) d.panning = true;
+    if (d.panning) {
+      box.scrollLeft = d.sl - dx;
+      box.scrollTop = d.st - dy;
+    }
+  };
+  const onLabelPointerUp = (e: ReactPointerEvent<HTMLElement>) => {
+    const d = labelDragRef.current;
+    labelDragRef.current = null;
+    if (!d) return;
+    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) focusNextInGeneration(d.depth);
+  };
+  const onLabelPointerCancel = () => {
+    labelDragRef.current = null;
   };
 
   // —— 缩放（命令式同步实现，手势事件里直接落 DOM，保证跟手）——
@@ -325,6 +395,20 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     box.addEventListener('touchcancel', onTouchEnd);
     box.addEventListener('gesturestart', onGestureStart);
 
+    // 标尺标签可点击后，滚轮落在标签上不再透传到图框（标签开始拦截指针事件）：
+    // 在标尺层加原生滚轮监听，按与图框滚轮完全相同的公式把缩放转发过去
+    //（标尺层与图框左上角重合，视口坐标换算一致）。标签之外的标尺区域仍是
+    // pointer-events:none，滚轮会直接落到图框，走原有监听，不会重复触发。
+    const layer = labelLayerRef.current;
+    const onLayerWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = box.getBoundingClientRect();
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+      const factor = Math.exp(-e.deltaY * unit * 0.0016);
+      applyZoomAt(zoomRef.current * factor, e.clientX - rect.left, e.clientY - rect.top);
+    };
+    if (layer) layer.addEventListener('wheel', onLayerWheel, { passive: false });
+
     // 四周补偿边距：给缩放后的画布外围留一整屏空白，
     // 这样手指/光标贴到图的任一边角时，理想滚动位置都不会被截断。
     const size = sizeRef.current;
@@ -364,6 +448,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
       box.removeEventListener('touchend', onTouchEnd);
       box.removeEventListener('touchcancel', onTouchEnd);
       box.removeEventListener('gesturestart', onGestureStart);
+      if (layer) layer.removeEventListener('wheel', onLayerWheel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -521,7 +606,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           </div>
         </div>
         <p className="text-xs text-gray-400 mb-4">
-          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），按住拖动平移；左侧世代标尺固定不动，横向滑远了也能对照世代；信息显示不全的卡片，悬停或点按可看全文气泡。
+          世系树：同一代的人在同一行，始祖固定在左上，支系只向右展开；点节点下方圆钮展开/收起支系（+N 为子辈人数）。共 {model.byId.size} 人，当前显示 {layout.totalShown} 人。在图上滚轮或双指捏合可放大缩小（15%–300%），按住拖动平移；左侧世代标尺固定不动，横向滑远了也能对照世代，点击标尺上的某个世代会逐个定位到本世成员（再点一次跳到下一位）；信息显示不全的卡片，悬停或点按可看全文气泡。
         </p>
         <div className="relative">
         <div
@@ -645,17 +730,22 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
           ref={labelLayerRef}
           className="pointer-events-none absolute left-0 top-0 bottom-0 overflow-hidden border-r border-gray-100 bg-white/95"
           style={{ width: GUTTER }}
-          aria-hidden="true"
         >
           <div ref={labelInnerRef} className="relative" style={{ transformOrigin: '0 0', width: GUTTER, height: layout.height }}>
             {layout.rowLabels.map((rl) => (
-              <div
+              <button
                 key={rl.depth}
-                className="absolute text-[11px] leading-tight text-gray-400 pr-1"
+                type="button"
+                title="点击定位本世成员，再点跳下一位"
+                className="pointer-events-auto touch-none absolute text-left text-[11px] leading-tight text-gray-400 pr-1 cursor-pointer hover:text-blue-600"
                 style={{ left: 0, top: TOP_PAD + rl.depth * ROW_H + 6, width: GUTTER - 10 }}
+                onPointerDown={(e) => onLabelPointerDown(e, rl.depth)}
+                onPointerMove={onLabelPointerMove}
+                onPointerUp={onLabelPointerUp}
+                onPointerCancel={onLabelPointerCancel}
               >
                 <span className="line-clamp-2">{rl.title}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
