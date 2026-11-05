@@ -34,6 +34,7 @@
 - 三个版本：Windows（解压后双击 exe 即用，免安装）、Android（APK 安装，最低 Android 7.0）、网页版（解压后用浏览器打开 `index.html`，任何系统可用）
 - 完全离线运行，不联网、不上传任何数据
 - 下载：本仓库的 [Releases 页面](https://github.com/FinalForever/familytree/releases)
+- 在线演示（打开即用，数据只存本地浏览器）：https://finalforever.github.io/familytree/
 
 ## 安全改造（相对上游）
 
@@ -252,6 +253,7 @@ This project ships with an offline companion editor app, **Family Tree Editor**,
 - Three builds: Windows (unzip and double-click the exe, no installation), Android (APK, requires Android 7.0 or later), and a web build (unzip and open `index.html` in any browser)
 - Fully offline: it never connects to the network and uploads nothing
 - Download: the [Releases page](https://github.com/FinalForever/familytree/releases) of this repository
+- Online demo (ready to use in the browser; data is stored only in your local browser): https://finalforever.github.io/familytree/
 
 ## Security changes (vs. upstream)
 
