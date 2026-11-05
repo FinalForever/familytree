@@ -557,10 +557,25 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
     return true;
   };
 
-  // 气泡打开期间：滚动/缩放/改窗口/Esc 都会让位置失效，直接关闭；钉住的气泡点别处也关
+  // 气泡打开期间：气泡之外的滚动/缩放/改窗口/Esc 都会让位置失效，直接关闭；钉住的气泡点别处也关。
+  // 注意：scroll/wheel 的 window 捕获监听会连气泡自身内容区的滚动一起收到——气泡里滚轮翻看
+  // 长简介、拖气泡自己的滚动条都必须放行，按事件来源（是否在 [data-pop] 内）过滤后再关，
+  // 否则滚轮还没滚、滑块刚拖动，气泡就被自己的滚动事件关掉（2026-11-05 用户报的 bug）。
   useEffect(() => {
     if (!pop) return;
     const close = () => setPop(null);
+    const inPop = (t: EventTarget | null): boolean => {
+      const el = t as HTMLElement | null;
+      return !!(el && typeof el.closest === 'function' && el.closest('[data-pop]'));
+    };
+    const onScroll = (e: Event) => {
+      if (inPop(e.target)) return; // 气泡内容区自身的滚动不关
+      close();
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (inPop(e.target)) return; // 气泡内滚轮只滚气泡内容
+      close();
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
     };
@@ -569,14 +584,14 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
       if (t.closest('[data-pop]') || t.closest(`#tree-node-${pop.id}`)) return;
       close();
     };
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('wheel', close, { capture: true, passive: true });
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('wheel', onWheel, { capture: true, passive: true });
     window.addEventListener('resize', close);
     window.addEventListener('keydown', onKey);
     if (pop.pinned) window.addEventListener('pointerdown', onDown, true);
     return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('wheel', close, { capture: true });
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('wheel', onWheel, { capture: true });
       window.removeEventListener('resize', close);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onDown, true);
@@ -824,7 +839,6 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
             transform: `translate(-50%, ${pop.above ? '-100%' : '0'})`,
             pointerEvents: pop.pinned ? 'auto' : 'none',
           }}
-          onClick={() => setPop(null)}
         >
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-sm font-bold text-gray-900">{pop.name}</span>
@@ -833,7 +847,7 @@ export default function TreeView({ data, searchTerm, searchInInfo }: TreeViewPro
             )}
           </div>
           {pop.years && <div className="mt-0.5 text-[11px] text-gray-500">{pop.years}</div>}
-          <p className="mt-1.5 max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-700">
+          <p className="mt-1.5 max-h-56 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-700">
             {pop.info}
           </p>
           {pop.pinned && <div className="mt-1.5 text-right text-[10px] text-gray-400">点任意处关闭</div>}
