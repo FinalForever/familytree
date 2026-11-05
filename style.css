@@ -1,0 +1,222 @@
+:root{
+  --green:#1a5436; --green-dark:#123c26; --gold:#d8b26a; --paper:#f7f4ec;
+  --card:#fffdf7; --ink:#2b2b26; --muted:#7a7568; --line:#ddd5c2;
+  --err:#b3261e; --err-bg:#fdeceb; --warn:#8a5a00; --warn-bg:#fff4d6;
+  --node-w:176px; --node-h:128px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--paper);color:var(--ink);-webkit-text-size-adjust:100%}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;color:var(--ink)}
+button:hover{border-color:var(--green)}
+button.primary{background:var(--green);color:#fff;border-color:var(--green)}
+button.primary:hover{background:var(--green-dark)}
+button.danger{color:var(--err);border-color:#e5b3b0}
+button.danger:hover{background:var(--err-bg)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.hidden{display:none !important}
+input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid rgba(26,84,54,.35);border-color:var(--green)}
+code{background:#efe9da;padding:1px 5px;border-radius:4px;font-size:.85em}
+
+/* 顶栏 */
+#topbar{position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;background:var(--green);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+#topbar .brand{font-weight:700;font-size:18px;margin-right:6px}
+#topbar .brand .app-version{font-size:12px;font-weight:400;color:rgba(255,255,255,.65);display:inline-block;padding:6px 5px;margin:-6px 0;text-decoration:underline;text-decoration-color:rgba(255,255,255,.35);text-underline-offset:2px;cursor:pointer}
+.mode-switch{display:flex;background:rgba(255,255,255,.14);border-radius:999px;padding:3px}
+.mode-btn{border:none;background:transparent;color:#e9e4d6;border-radius:999px;padding:5px 16px}
+.mode-btn.active{background:#fff;color:var(--green);font-weight:700}
+/* 编辑工具栏（1.1.0 布局调整，用户真机反馈）：搜索框从内容区移进绿色顶栏，
+   与查看工具栏同构两行——第一行操作按钮、第二行搜索框整行。
+   第一行：行容器高 38、五个按钮单行不换行、按钮高 32 居中（字号/横向内边距再收一圈，
+   靠横向腾宽度保单行，高度维持 32 不硬压）；第二行搜索框高 38 与查看侧搜索行同高；
+   整块 38+6+38=82 与查看工具栏逐行对齐，模式切换顶栏不跳（见工具栏一节） */
+#topbar #editToolbar{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;flex:1 1 100%;order:5}
+.top-actions{display:flex;flex-wrap:nowrap;gap:5px;align-items:center;height:38px;flex:1 1 100%;min-width:0}
+.top-actions button{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.35);font-size:12.5px;padding:3px 7px;min-height:32px;white-space:nowrap}
+.top-actions button.primary{background:var(--gold);border-color:var(--gold);color:#3a2c07;font-weight:700}
+@media (max-width:350px){
+  .top-actions{gap:4px}
+  .top-actions button{font-size:12px;padding:3px 5px}
+}
+
+/* 启动页 */
+#startScreen{display:flex;justify-content:center;padding:36px 14px}
+.start-card{max-width:560px;width:100%;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 24px;box-shadow:0 6px 24px rgba(60,50,20,.08);text-align:center}
+.start-card h1{margin:4px 0 8px;color:var(--green)}
+.start-sub{color:var(--muted);line-height:1.7;margin:0 0 20px}
+.start-btns{display:grid;gap:10px}
+.big-btn{padding:14px 16px;font-size:17px;text-align:left;border-radius:12px;background:#fff}
+.big-btn span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.start-note{color:var(--muted);font-size:13px;margin:18px 0 0}
+
+/* 编辑布局 */
+#editLayout{display:grid;grid-template-columns:1fr 300px;gap:14px;padding:14px;max-width:1280px;margin:0 auto;align-items:start}
+@media (max-width:860px){#editLayout{grid-template-columns:1fr}}
+.gen-section{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.gen-head{padding:10px 12px;background:#efe9da;border-bottom:1px solid var(--line)}
+/* 标题行 .gen-head-main 独立成行且 nowrap：「＋ 成员」恒与折叠钮/标题同行靠右；
+   宽度不足时靠标题输入框弹性收缩腾挪（基准 170、最小 48）——注意不能靠外层 flex-wrap
+   换行解决：换行判定先于收缩，基准总宽一旦超容器按钮就先掉行（两位数人数时实测中招）。
+   「删除本世」是标题行之外的块级第二行，位置恒定 */
+.gen-head-main{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;margin-bottom:6px}
+.gen-head input{flex:0 1 170px;width:auto;min-width:48px;font-weight:700;background:transparent;border-color:transparent}
+.gen-head .gen-fold-btn,.gen-head [data-act="add-person"]{flex:none}
+.gen-head .gen-count{white-space:nowrap;flex:none}
+.gen-head input:focus{background:#fff}
+/* 世代头按钮（＋成员/删除本世/折叠）随 1.1.0 编辑按钮瘦身一并收一圈：高 38->32、字号 13 */
+.gen-head button{font-size:13px;padding:3px 9px;min-height:32px}
+.gen-head .gen-fold-btn{padding:3px 5px;min-width:30px;color:var(--green);font-weight:700}
+.gen-count{color:var(--muted);font-size:13px}
+.gen-head .spacer,.modal-btns .spacer{flex:1}
+.gen-people{padding:10px 12px;display:grid;gap:8px}
+.gen-empty{color:var(--muted);text-align:center;padding:10px;font-size:14px}
+.person-card{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff}
+.person-card .p-main{flex:1;min-width:0}
+.p-name{font-weight:700;font-size:16px}
+.p-name .p-years{font-weight:400;color:var(--muted);font-size:13px;margin-left:6px}
+.p-info{color:#55503f;font-size:13px;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}
+.p-father{color:var(--muted);font-size:12px;margin-top:2px}
+.p-actions{display:flex;flex-direction:column;gap:3px}
+/* 成员行按钮是每卡纵向 5 个的堆叠：再收一圈字号/内边距压低整卡高度（原高 27，本就低于 30，
+   若硬抬到 30 反而每卡更高、与变扁目标相悖，故只做小幅收紧，见交付说明） */
+.p-actions button{padding:2px 6px;font-size:12px;border-radius:6px;white-space:nowrap}
+.add-gen-btn{width:100%;padding:9px;font-size:15px;border-style:dashed}
+
+/* 编辑态搜索：已移入绿色顶栏 #editToolbar 第二行（与查看态搜索框同款：
+   白底圆角输入框整行 + 右侧计数，计数文字用顶栏浅色） */
+#topbar .edit-search{display:flex;align-items:center;gap:6px;flex:1 1 100%;min-width:0}
+#topbar .edit-search input{flex:1;min-width:0;max-width:none;height:38px;min-height:38px;padding:4px 10px;font-size:14px}
+#editSearchInfo{color:#f0ead6;font-size:12.5px;white-space:nowrap}
+@media (max-width:350px){
+  #topbar .edit-search input{font-size:13px}
+}
+
+/* 校验面板 */
+#validPanel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;position:sticky;top:64px}
+#validPanel h3{margin:2px 0 10px;color:var(--green)}
+.valid-ok{color:var(--green);background:#e7f2e9;border-radius:8px;padding:8px 10px;font-size:14px}
+.valid-group{margin-bottom:10px}
+.valid-group h4{margin:6px 0;font-size:14px}
+.valid-group.errs h4{color:var(--err)}
+.valid-group.warns h4{color:var(--warn)}
+.valid-item{font-size:13px;border-radius:8px;padding:7px 9px;margin-bottom:6px;cursor:pointer;line-height:1.5}
+.valid-item.err{background:var(--err-bg)}
+.valid-item.warn{background:var(--warn-bg)}
+.valid-item:hover{filter:brightness(.97)}
+
+/* 查看模式：工具栏位于绿色顶栏内，仅查看状态显示。
+   紧凑布局（给下方树图让纵向空间）：第一行 = 标签组 + 展开开关 + 缩放组（一行放下），
+   第二行 = 搜索框整行；扁平化靠收字号/内边距实现，行高与编辑侧工具区逐行对齐——
+   编辑侧 #editToolbar 同为两行（按钮行 38 + 搜索行 38）、行距 6、整块 82px，故此处两行同为 38px、整块同为 82px，
+   模式切换时顶栏总高度不跳动；窄屏再收紧字号与横向内边距保持单行（行高不变） */
+#topbar #viewToolbar{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;flex:1 1 100%;order:5}
+#topbar #viewToolbar button{min-height:38px;font-size:13px;padding:2px 8px;border-radius:7px}
+#topbar #viewToolbar .seg{order:1;padding:2px}
+#topbar #viewToolbar .seg-btn{min-height:34px;padding:2px 7px;border-radius:999px}
+#topbar #viewToolbar .view-tools{order:2;gap:3px}
+#topbar #viewToolbar #btnZoomOut,#topbar #viewToolbar #btnZoomIn{padding:2px 6px}
+#topbar #viewToolbar #btnZoomReset{font-size:12.5px;min-width:46px;padding:2px 5px}
+#topbar #viewToolbar .search-box{order:3;flex:1 1 100%;min-width:0;gap:6px}
+#topbar #viewToolbar .search-box input{flex:1;min-width:0;max-width:none;height:38px;min-height:38px;padding:4px 10px;font-size:14px}
+#topbar #searchInfo{color:#f0ead6;font-size:12.5px}
+@media (max-width:350px){
+  #topbar #viewToolbar{gap:6px 3px}
+  #topbar #viewToolbar button{font-size:12px;padding:2px 4px}
+  #topbar #viewToolbar .seg-btn{padding:2px 4px}
+  #topbar #viewToolbar .view-tools{gap:2px}
+  #topbar #viewToolbar #btnZoomOut,#topbar #viewToolbar #btnZoomIn{padding:2px 4px}
+  #topbar #viewToolbar #btnZoomReset{font-size:12px;min-width:40px;padding:2px 4px}
+  #topbar #viewToolbar .search-box input{font-size:13px}
+}
+#viewEmpty{padding:56px 20px;text-align:center;color:var(--muted);font-size:16px}
+.seg{display:flex;background:#e8e1cf;border-radius:999px;padding:3px}
+.seg-btn{border:none;background:transparent;border-radius:999px;padding:5px 16px}
+.seg-btn.active{background:#fff;font-weight:700;color:var(--green);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.search-box{display:flex;align-items:center;gap:8px;flex:1;min-width:200px}
+.search-box input{max-width:340px}
+#searchInfo{color:var(--muted);font-size:13px;white-space:nowrap}
+.view-tools{display:flex;gap:6px;align-items:center}
+#searchChips{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px}
+#searchChips:empty{display:none}
+.chip{background:#fff;border:1px solid var(--gold);color:#6d5518;border-radius:999px;padding:3px 10px;font-size:13px}
+.chip:hover{background:#fdf3da}
+#treeWrap{position:relative;height:calc(100vh - 116px);min-height:380px;margin:10px 14px 14px;border:1px solid var(--line);border-radius:12px;background:
+  radial-gradient(circle, #e3dcc8 1px, transparent 1px) 0 0/22px 22px, var(--card);overflow:hidden;touch-action:none;overscroll-behavior:none}
+#treeCanvas{position:absolute;left:0;top:0;transform-origin:0 0;touch-action:none}
+#treeSvg{position:absolute;left:0;top:0;overflow:visible;touch-action:none}
+#treeNodes{position:absolute;left:0;top:0;touch-action:none}
+#treeRuler{position:absolute;left:0;top:0;bottom:0;width:54px;background:rgba(247,244,236,.92);border-right:1px solid var(--line);z-index:5;overflow:hidden;pointer-events:auto;touch-action:none}
+#treeRulerInner{position:absolute;left:0;top:0;width:100%}
+.ruler-label{position:absolute;left:0;width:100%;text-align:center;font-size:12px;color:var(--green);font-weight:700;transform:translateY(-50%);white-space:nowrap;cursor:pointer;padding:14px 0;border-radius:6px;touch-action:none;user-select:none;-webkit-user-select:none}
+.ruler-label:hover{background:rgba(26,84,54,.12)}
+.ruler-label:active{background:rgba(26,84,54,.22)}
+.tnode{position:absolute;width:var(--node-w);height:var(--node-h);background:#fff;border:1.5px solid #b9ac8d;border-radius:10px;padding:8px 10px;box-shadow:0 2px 6px rgba(60,50,20,.10);cursor:pointer;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+.tnode:hover{border-color:var(--green)}
+.tnode.highlight{border-color:#d35400;box-shadow:0 0 0 3px rgba(211,84,0,.35)}
+.tnode.focus-flash{border-color:var(--green);animation:nodeFocusFlash 1.2s ease-out}
+@keyframes nodeFocusFlash{0%{box-shadow:0 0 0 3px rgba(26,84,54,.65),0 0 26px 8px rgba(216,178,106,.9)}55%{box-shadow:0 0 0 7px rgba(26,84,54,.28),0 0 16px 4px rgba(216,178,106,.45)}100%{box-shadow:0 2px 6px rgba(60,50,20,.10)}}
+.tnode .t-name{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tnode .t-years{color:var(--muted);font-size:12px}
+.tnode .t-info{font-size:12px;color:#55503f;margin-top:3px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line;line-height:1.45}
+.tnode .t-badge{position:absolute;right:6px;bottom:6px;background:var(--green);color:#fff;border:none;border-radius:999px;font-size:12px;padding:2px 9px;z-index:2;touch-action:none}
+.tnode .t-badge:hover{background:var(--green-dark)}
+/* 人物气泡：flex 列布局——标题/元信息/按钮行固定，只有简介区可伸缩；
+   总高由 ui.js 按视口设 max-height 封顶，超高时简介区内部纵向滚动（见 placeNodePop）。
+   touch-action:pan-y 让气泡上的纵向触摸交给原生滚动、不被画布手势（#treeWrap 的 touch-action:none）吞掉 */
+#nodePop{position:absolute;z-index:20;width:280px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.22);padding:14px;display:flex;flex-direction:column;touch-action:pan-y}
+#nodePop h4{margin:0 0 4px;font-size:17px;flex:none}
+#nodePop .np-meta{color:var(--muted);font-size:13px;line-height:1.6;flex:none}
+#nodePop .np-info{margin-top:8px;font-size:14px;line-height:1.65;white-space:pre-wrap;flex:1 1 auto;min-height:0;overflow-y:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+#nodePop .np-btns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;flex:none}
+
+/* 列表视图 */
+#listView{padding:4px 14px 20px;max-width:1100px;margin:0 auto}
+.list-gen{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow:hidden;max-width:100%}
+.list-gen h3{margin:0;padding:10px 14px;background:#efe9da;color:var(--green)}
+/* 世代列表折叠：标题行整行可点；箭头用 ::before 呈现（不进 textContent，标号断言读的仍是纯标题文本） */
+.list-gen h3.list-gen-head{cursor:pointer;user-select:none;-webkit-user-select:none}
+.list-gen h3.list-gen-head::before{content:'▾';display:inline-block;margin-right:7px;font-size:12px;color:var(--muted)}
+.list-gen.folded h3.list-gen-head::before{content:'▸'}
+.list-gen h3.list-gen-head:hover{background:#e7dfc9}
+.list-gen table{width:100%;max-width:100%;border-collapse:collapse;font-size:14px}
+.list-gen th,.list-gen td{padding:7px 10px;border-top:1px solid #eee5cf;text-align:left;vertical-align:top;min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.list-gen th{color:var(--muted);font-weight:600;white-space:nowrap}
+.list-gen td.info-cell{white-space:pre-line;min-width:0}
+/* 窄屏：成员改为纵向堆叠卡片，简介整段换行显示，全程无横向滚动 */
+@media (max-width:720px){
+  #listView{padding:4px 8px 16px}
+  .list-gen table,.list-gen tbody{display:block;width:100%}
+  .list-gen thead{display:none}
+  .list-gen tr{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:baseline;padding:8px 12px;border-top:1px solid #eee5cf}
+  .list-gen tr:first-child{border-top:none}
+  .list-gen td{display:block;border-top:none;padding:2px 0}
+  .list-gen td:empty{display:none}
+  .list-gen td.name-cell{flex:0 0 auto;font-size:15px}
+  .list-gen td.years-cell{flex:0 0 auto;color:var(--muted);font-size:13px}
+  .list-gen td.spouse-cell,.list-gen td.father-cell{flex:1 0 100%;color:#55503f;font-size:13px}
+  .list-gen td.spouse-cell::before{content:"配偶：";color:var(--muted)}
+  .list-gen td.father-cell::before{content:"父亲：";color:var(--muted)}
+  .list-gen td.info-cell{flex:1 0 100%;white-space:pre-line}
+}
+
+/* 弹窗 */
+.modal-mask{position:fixed;inset:0;background:rgba(30,25,10,.45);z-index:60;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:22px 12px}
+.modal{background:#fff;border-radius:14px;max-width:520px;width:100%;min-width:0;padding:20px;box-shadow:0 16px 44px rgba(0,0,0,.3)}
+.modal.small{max-width:420px}
+.modal h3{margin:0 0 14px;color:var(--green)}
+#personForm{display:grid;gap:10px;min-width:0}
+#personForm label{display:grid;gap:4px;font-size:14px}
+#personForm label em{color:var(--err);font-style:normal}
+#personForm>*,#personForm label>*,.row2>*{min-width:0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.id-line{color:var(--muted);font-size:12px;margin:0;overflow-wrap:anywhere}
+.id-line code{overflow-wrap:anywhere;word-break:break-all}
+#fFather,#fGen{max-width:100%}
+#confirmText,.err-list{overflow-wrap:anywhere}
+.form-error{color:var(--err);background:var(--err-bg);border-radius:8px;padding:8px 10px;font-size:14px;margin:0}
+.modal-btns{display:flex;gap:8px;margin-top:14px;align-items:center}
+.err-list{color:var(--err);font-size:14px;line-height:1.7;max-height:300px;overflow:auto;padding-left:20px}
+
+/* toast */
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#26241c;color:#fdfbef;padding:10px 18px;border-radius:999px;font-size:14px;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.35);max-width:88vw;text-align:center}

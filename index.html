@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>族谱编写</title>
+<meta name="description" content="族谱数据编写与查看，离线可用，数据格式与族谱网站通用">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1a5436">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="族谱编写">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">🌳 族谱编写 <a id="appVersion" class="app-version" href="https://github.com/FinalForever/familytree" target="_blank" rel="noopener" title="打开 GitHub 仓库"></a></div>
+  <nav class="mode-switch" aria-label="模式切换">
+    <button id="btnModeView" class="mode-btn" type="button">👁 查看</button>
+    <button id="btnModeEdit" class="mode-btn active" type="button">✎ 编辑</button>
+  </nav>
+  <!-- 编辑工具栏：位于绿色顶栏内，仅编辑状态显示（由 ui.js 的 syncModeUI 控制）；
+       与查看工具栏同构两行：第一行操作按钮、第二行搜索框整行 -->
+  <div id="editToolbar">
+    <div class="top-actions" id="topActions">
+      <button id="btnNew" type="button">新建</button>
+      <button id="btnImport" type="button">导入</button>
+      <button id="btnPaste" type="button">粘贴导入</button>
+      <button id="btnExport" type="button" class="primary">导出 JSON</button>
+      <button id="btnCopy" type="button">复制 JSON</button>
+    </div>
+    <div class="edit-search">
+      <input id="editSearchInput" type="search" placeholder="搜索姓名 / 简介…" autocomplete="off">
+      <span id="editSearchInfo"></span>
+    </div>
+  </div>
+  <!-- 查看工具栏：位于绿色顶栏内，仅查看状态显示（由 ui.js 的 syncModeUI 控制） -->
+  <div id="viewToolbar" class="hidden">
+    <div class="seg">
+      <button id="btnTreeTab" class="seg-btn active" type="button">世系树图</button>
+      <button id="btnListTab" class="seg-btn" type="button">世代列表</button>
+    </div>
+    <div class="view-tools">
+      <button id="btnExpandAll" type="button">展开全部</button>
+      <button id="btnZoomOut" type="button">－</button>
+      <button id="btnZoomReset" type="button">100%</button>
+      <button id="btnZoomIn" type="button">＋</button>
+    </div>
+    <div class="search-box">
+      <input id="searchInput" type="search" placeholder="搜索姓名 / 简介…" autocomplete="off">
+      <span id="searchInfo"></span>
+    </div>
+  </div>
+</header>
+
+<!-- 启动页 -->
+<section id="startScreen">
+  <div class="start-card">
+    <h1>族谱编写</h1>
+    <p class="start-sub">直观地编写族谱数据，随时查看世系树图。<br>编写结果可直接用于族谱网站（family-data.json）。</p>
+    <div class="start-btns">
+      <button id="startNew" class="big-btn" type="button">📄 新建空白族谱<span>从第一世始祖开始</span></button>
+      <button id="startSample" class="big-btn" type="button">👀 载入示例<span>白家示例数据（17 人），先看看效果</span></button>
+      <button id="startImport" class="big-btn" type="button">📥 导入已有 JSON<span>选择 family-data.json 文件继续编辑</span></button>
+      <button id="startPaste" class="big-btn" type="button">📋 粘贴 JSON 导入<span>把 JSON 文本粘贴进来</span></button>
+    </div>
+    <p class="start-note">编辑内容会自动保存在本机（浏览器本地存储），下次打开自动恢复。</p>
+  </div>
+</section>
+
+<!-- 编辑模式 -->
+<main id="editView" class="hidden">
+  <div id="editLayout">
+    <div id="genColumn">
+      <div id="genList"></div>
+      <button id="btnAddGen" class="add-gen-btn" type="button">＋ 新增一世</button>
+    </div>
+    <aside id="validPanel">
+      <h3>数据校验</h3>
+      <div id="validBody"></div>
+    </aside>
+  </div>
+</main>
+
+<!-- 查看模式（工具栏已移入顶部绿色标题栏 #viewToolbar） -->
+<main id="viewView" class="hidden">
+  <div id="viewEmpty" class="hidden">暂无数据，切到编辑页新建或导入。</div>
+  <div id="searchChips"></div>
+  <div id="treeWrap">
+    <div id="treeRuler"><div id="treeRulerInner"></div></div>
+    <div id="treeCanvas">
+      <svg id="treeSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="treeNodes"></div>
+    </div>
+    <div id="nodePop" class="hidden"></div>
+  </div>
+  <div id="listView" class="hidden"></div>
+</main>
+
+<!-- 成员编辑弹窗 -->
+<div id="personModal" class="modal-mask hidden">
+  <div class="modal">
+    <h3 id="personModalTitle">编辑成员</h3>
+    <form id="personForm">
+      <label>姓名 <em>*</em><input id="fName" type="text" required placeholder="如：白景琦"></label>
+      <label>简介<textarea id="fInfo" rows="6" placeholder="配偶、子女、生平事迹等"></textarea></label>
+      <div class="row2">
+        <label>出生年<input id="fBirth" type="number" inputmode="numeric" placeholder="如：1880"></label>
+        <label>逝世年<input id="fDeath" type="number" inputmode="numeric" placeholder="在世留空"></label>
+      </div>
+      <label>配偶<input id="fSpouse" type="text" placeholder="配偶姓名（可选）"></label>
+      <label>所在世代<select id="fGen"></select></label>
+      <label>父亲
+        <input id="fFatherSearch" type="text" placeholder="输入姓名筛选父亲候选…" autocomplete="off">
+        <select id="fFather" size="6"></select>
+      </label>
+      <p class="id-line">编号（自动生成）：<code id="fId"></code></p>
+      <p id="formError" class="form-error hidden"></p>
+      <div class="modal-btns">
+        <button id="btnDeletePerson" type="button" class="danger">删除此人</button>
+        <span class="spacer"></span>
+        <button id="btnCancelPerson" type="button">取消</button>
+        <button id="btnSavePerson" type="submit" class="primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 通用确认弹窗 -->
+<div id="confirmModal" class="modal-mask hidden">
+  <div class="modal small">
+    <h3 id="confirmTitle">请确认</h3>
+    <p id="confirmText"></p>
+    <div class="modal-btns">
+      <span class="spacer"></span>
+      <button id="btnConfirmNo" type="button">取消</button>
+      <button id="btnConfirmYes" type="button" class="danger">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 粘贴导入弹窗 -->
+<div id="pasteModal" class="modal-mask hidden">
+  <div class="modal">
+    <h3>粘贴 JSON 导入</h3>
+    <textarea id="pasteText" rows="10" placeholder="把 family-data.json 的内容粘贴到这里"></textarea>
+    <p id="pasteError" class="form-error hidden"></p>
+    <div class="modal-btns">
+      <span class="spacer"></span>
+      <button id="btnPasteCancel" type="button">取消</button>
+      <button id="btnPasteGo" type="button" class="primary">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 导入错误弹窗 -->
+<div id="importErrorModal" class="modal-mask hidden">
+  <div class="modal">
+    <h3>导入失败</h3>
+    <p>文件数据不合规，已拒绝载入（原有数据未受影响）：</p>
+    <ul id="importErrorList" class="err-list"></ul>
+    <div class="modal-btns">
+      <span class="spacer"></span>
+      <button id="btnImportErrorOk" type="button" class="primary">知道了</button>
+    </div>
+  </div>
+</div>
+
+<input id="fileInput" type="file" accept=".json,application/json" class="hidden">
+<div id="toast" class="hidden"></div>
+
+<script src="core.js"></script>
+<script src="sample-data.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
