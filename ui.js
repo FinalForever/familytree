@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var C = window.FTCore;
-  var APP_VERSION = '1.1.0'; /* 顶栏显示的版本号只在此处维护一处；壳的版本点位（win/android 构建脚本）另行同步 */
+  var APP_VERSION = '1.2.0'; /* 版本号只在此处维护一处（显示于设置页「关于软件」）；壳的版本点位（win/android 构建脚本）另行同步 */
   var LS_KEY = 'ft-editor-draft-v1';
   var NODE_W = 176, NODE_H = 128, SLOT_W = 196, ROW_H = 184, PAD_LEFT = 68, PAD_TOP = 18;
 
@@ -78,6 +78,320 @@
     $('btnConfirmYes').className = danger ? 'danger' : 'primary';
     confirmCb = onYes;
     $('confirmModal').classList.remove('hidden');
+  }
+
+  /* ---------------- App 锁与设置（1.2.0） ----------------
+     PIN 只存加盐多轮哈希（本地 SHA-256 迭代），绝不存明文；锁开关/盐/哈希存 localStorage，
+     输错计数与锁定截止单独存（不污染设置本体）。生物识别是渐进增强，PIN 是全平台保底：
+     Android 走 window.NativeBridge（壳内 BiometricPrompt），Windows 走 window.FTBridge（preload 暴露的
+     Windows Hello 桥），网页版无桥则只有 PIN。App 锁只是进入门禁，不加密本地数据。 */
+  var LS_SET_KEY = 'ft-editor-settings-v1';
+  var LS_LOCKSTATE_KEY = 'ft-editor-lockstate-v1';
+  var settings = { lock: false, salt: '', hash: '', bio: false };
+  var lockState = { fails: 0, lockoutUntil: 0 };
+  var booted = false;   /* 主界面是否已完成首次引导（冷启动被锁时保持 false，数据在解锁前不加载渲染） */
+  var isLocked = false; /* 锁屏当前是否展示中 */
+  var hiddenAt = 0;     /* 最近一次切到后台的时刻；切回时离开超过 30 秒重新上锁 */
+  var lockTimer = null; /* 锁定倒计时刷新句柄 */
+  var bioPlatform = null;    /* 'android' | 'windows' | null */
+  var bioStatus = 'unavailable'; /* 'ok' 表示可用；其余为不可用原因（见 bioReasonText） */
+
+  function sha256Hex(ascii) {
+    function rr(v, a) { return (v >>> a) | (v << (32 - a)); }
+    var K = [
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ];
+    var H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    var str = unescape(encodeURIComponent(String(ascii)));
+    var bytes = [];
+    for (var i = 0; i < str.length; i++) bytes.push(str.charCodeAt(i) & 0xff);
+    var bitLenHi = Math.floor(str.length / 0x20000000), bitLenLo = (str.length << 3) >>> 0;
+    bytes.push(0x80);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    bytes.push((bitLenHi >>> 24) & 0xff, (bitLenHi >>> 16) & 0xff, (bitLenHi >>> 8) & 0xff, bitLenHi & 0xff);
+    bytes.push((bitLenLo >>> 24) & 0xff, (bitLenLo >>> 16) & 0xff, (bitLenLo >>> 8) & 0xff, bitLenLo & 0xff);
+    var w = new Array(64), t;
+    for (var base = 0; base < bytes.length; base += 64) {
+      for (t = 0; t < 16; t++) w[t] = (bytes[base + t * 4] << 24) | (bytes[base + t * 4 + 1] << 16) | (bytes[base + t * 4 + 2] << 8) | bytes[base + t * 4 + 3];
+      for (t = 16; t < 64; t++) {
+        var s0 = rr(w[t - 15], 7) ^ rr(w[t - 15], 18) ^ (w[t - 15] >>> 3);
+        var s1 = rr(w[t - 2], 17) ^ rr(w[t - 2], 19) ^ (w[t - 2] >>> 10);
+        w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (t = 0; t < 64; t++) {
+        var S1 = rr(e, 6) ^ rr(e, 11) ^ rr(e, 25);
+        var ch = (e & f) ^ (~e & g);
+        var temp1 = (h + S1 + ch + K[t] + w[t]) | 0;
+        var S0 = rr(a, 2) ^ rr(a, 13) ^ rr(a, 22);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var temp2 = (S0 + maj) | 0;
+        h = g; g = f; f = e; e = (d + temp1) | 0; d = c; c = b; b = a; a = (temp1 + temp2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+      H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    var out = '';
+    for (i = 0; i < 8; i++) out += ('0000000' + (H[i] >>> 0).toString(16)).slice(-8);
+    return out;
+  }
+  function newSalt() {
+    var a = new Uint8Array(8), i, out = '';
+    if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(a);
+    else for (i = 0; i < 8; i++) a[i] = Math.floor(Math.random() * 256);
+    for (i = 0; i < 8; i++) out += ('0' + a[i].toString(16)).slice(-2);
+    return out;
+  }
+  function pinHash(pin) {
+    var h = sha256Hex(settings.salt + ':' + pin);
+    for (var i = 0; i < 6000; i++) h = sha256Hex(h + settings.salt);
+    return h;
+  }
+  function pinFormatOk(pin) { return /^[0-9]{4,6}$/.test(pin); }
+  function verifyPin(pin) { return !!settings.hash && pinHash(pin) === settings.hash; }
+  function loadLockSettings() {
+    try {
+      var s = JSON.parse(localStorage.getItem(LS_SET_KEY) || 'null');
+      if (s && typeof s === 'object') {
+        settings.lock = !!s.lock; settings.salt = String(s.salt || '');
+        settings.hash = String(s.hash || ''); settings.bio = !!s.bio;
+      }
+      var l = JSON.parse(localStorage.getItem(LS_LOCKSTATE_KEY) || 'null');
+      if (l && typeof l === 'object') {
+        lockState.fails = Number(l.fails) || 0;
+        lockState.lockoutUntil = Number(l.lockoutUntil) || 0;
+      }
+    } catch (e) { /* 存储损坏时按未开启处理，不把用户锁死 */ }
+    if (!settings.hash) settings.lock = false; /* 无哈希残留状态时一律视为未开启 */
+  }
+  function saveSettings() {
+    try { localStorage.setItem(LS_SET_KEY, JSON.stringify(settings)); } catch (e) { /* 静默 */ }
+  }
+  function saveLockState() {
+    try { localStorage.setItem(LS_LOCKSTATE_KEY, JSON.stringify(lockState)); } catch (e) { /* 静默 */ }
+  }
+
+  /* 生物识别桥：平台探测 + 统一回调口（任何异常/超时都按失败收束，绝不把用户吊在锁屏上） */
+  function detectBio() {
+    if (window.NativeBridge && typeof window.NativeBridge.biometricStatus === 'function') {
+      bioPlatform = 'android';
+      try { bioStatus = String(window.NativeBridge.biometricStatus() || 'unavailable'); }
+      catch (e) { bioStatus = 'unavailable'; }
+    } else if (window.FTBridge && typeof window.FTBridge.helloAvailable === 'function') {
+      bioPlatform = 'windows';
+      bioStatus = 'checking';
+      window.FTBridge.helloAvailable().then(function (ok) {
+        bioStatus = ok ? 'ok' : 'unavailable'; onBioStatusKnown();
+      }).catch(function () { bioStatus = 'unavailable'; onBioStatusKnown(); });
+    }
+  }
+  function onBioStatusKnown() {
+    if (isLocked) updateLockBioBtn();
+    if (!$('settingsModal').classList.contains('hidden')) renderSettings();
+  }
+  function bioUsable() { return !!bioPlatform && bioStatus === 'ok'; }
+  function bioReasonText() {
+    if (bioStatus === 'none_enrolled') return '未录入（请先在系统设置里录入指纹/面容）';
+    if (bioStatus === 'no_hardware') return '设备没有生物识别硬件';
+    if (bioStatus === 'unsupported_os') return '系统版本过低';
+    if (bioStatus === 'checking') return '正在检测…';
+    return '当前不可用';
+  }
+  function bioAuth(cb) {
+    if (!bioUsable()) { cb(false); return; }
+    var done = false;
+    function finish(ok) { if (!done) { done = true; cb(!!ok); } }
+    if (bioPlatform === 'android') {
+      window.__ftBioResult = function (ok) { window.__ftBioResult = null; finish(ok); };
+      setTimeout(function () { if (window.__ftBioResult) { window.__ftBioResult = null; finish(false); } }, 30000);
+      try { window.NativeBridge.biometricAuth(); }
+      catch (e) { window.__ftBioResult = null; finish(false); }
+    } else {
+      setTimeout(function () { finish(false); }, 90000);
+      try {
+        window.FTBridge.helloVerify().then(function (ok) { finish(ok); })
+          .catch(function () { finish(false); });
+      } catch (e) { finish(false); }
+    }
+  }
+
+  /* 锁屏 */
+  function setLockError(msg) {
+    var e = $('lockError');
+    e.textContent = msg || '';
+    e.classList.toggle('hidden', !msg);
+  }
+  function showLock(autoBio) {
+    isLocked = true;
+    $('lockScreen').classList.remove('hidden');
+    $('lockPin').value = '';
+    setLockError('');
+    updateLockGate();
+    updateLockBioBtn();
+    if (autoBio && settings.bio) tryBioUnlock();
+    setTimeout(function () { try { $('lockPin').focus(); } catch (e) { /* 忽略 */ } }, 80);
+  }
+  function hideLock() {
+    isLocked = false;
+    clearInterval(lockTimer); lockTimer = null;
+    $('lockScreen').classList.add('hidden');
+  }
+  function updateLockGate() {
+    var remain = Math.ceil((lockState.lockoutUntil - Date.now()) / 1000);
+    var out = remain > 0;
+    $('lockPin').disabled = out;
+    $('btnUnlock').disabled = out;
+    if (out) setLockError('连续输错次数过多，请 ' + remain + ' 秒后再试');
+    clearInterval(lockTimer);
+    if (out) {
+      lockTimer = setInterval(function () {
+        var r = Math.ceil((lockState.lockoutUntil - Date.now()) / 1000);
+        if (r > 0) setLockError('连续输错次数过多，请 ' + r + ' 秒后再试');
+        else { clearInterval(lockTimer); lockTimer = null; $('lockPin').disabled = false; $('btnUnlock').disabled = false; setLockError(''); }
+      }, 500);
+    }
+  }
+  function updateLockBioBtn() {
+    var show = !!(settings.bio && bioUsable());
+    $('btnLockBio').classList.toggle('hidden', !show);
+    $('btnLockBio').textContent = bioPlatform === 'windows' ? '🔐 使用 Windows Hello 解锁' : '🔐 使用指纹 / 面容解锁';
+  }
+  function tryBioUnlock() {
+    if (!bioUsable()) return;
+    bioAuth(function (ok) { if (ok) unlockSuccess(); });
+  }
+  function unlockSuccess() {
+    lockState.fails = 0;
+    lockState.lockoutUntil = 0;
+    saveLockState();
+    hideLock();
+    if (!booted) bootApp();
+  }
+  function tryPinUnlock() {
+    if (Date.now() < lockState.lockoutUntil) { updateLockGate(); return; }
+    var pin = $('lockPin').value;
+    if (verifyPin(pin)) { unlockSuccess(); return; }
+    lockState.fails++;
+    if (lockState.fails >= 5) {
+      lockState.lockoutUntil = Date.now() + 30000;
+      lockState.fails = 0;
+      saveLockState();
+      setLockError('连续输错 5 次，已锁定 30 秒');
+    } else {
+      saveLockState();
+      setLockError('PIN 不正确，还可尝试 ' + (5 - lockState.fails) + ' 次');
+    }
+    $('lockPin').value = '';
+    updateLockGate();
+  }
+
+  /* 设置页 */
+  var pinFormMode = null; /* 'setup' | 'change' | 'disable' | null */
+  function openSettings() {
+    renderSettings();
+    $('settingsModal').classList.remove('hidden');
+  }
+  function closeSettings() {
+    $('settingsModal').classList.add('hidden');
+    pinFormMode = null;
+  }
+  function renderSettings() {
+    pinFormMode = null;
+    $('pinFormBlock').classList.add('hidden');
+    $('lockStateText').textContent = settings.lock ? '已开启（进入 App 需验证 PIN）' : '未开启';
+    $('lockOffBlock').classList.toggle('hidden', settings.lock);
+    $('lockOnBlock').classList.toggle('hidden', !settings.lock);
+    /* 生物行：有平台桥才显示；不可用置灰注明原因；开关只在锁已开且平台可用时可操作 */
+    var showBio = !!bioPlatform;
+    $('bioRow').classList.toggle('hidden', !showBio);
+    if (showBio) {
+      $('bioLabel').firstChild.textContent = bioPlatform === 'windows' ? 'Windows Hello 解锁' : '生物识别解锁';
+      $('bioSub').textContent = bioUsable()
+        ? (bioPlatform === 'windows' ? '验证通过系统 Hello（指纹 / 面容 / PIN）' : '指纹 / 面容，与 PIN 任一通过即可解锁')
+        : bioReasonText();
+      var t = $('bioToggle');
+      t.checked = !!(settings.bio && bioUsable());
+      t.disabled = !settings.lock || !bioUsable();
+    }
+  }
+  function setPinError(msg) {
+    var e = $('pinFormError');
+    e.textContent = msg || '';
+    e.classList.toggle('hidden', !msg);
+  }
+  function openPinForm(mode) {
+    pinFormMode = mode;
+    $('pinFormBlock').classList.remove('hidden');
+    $('lockOffBlock').classList.add('hidden');
+    $('lockOnBlock').classList.add('hidden');
+    $('pinFormTitle').textContent = mode === 'setup' ? '设置 PIN 并开启 App 锁' : (mode === 'change' ? '修改 PIN' : '关闭 App 锁（先验证 PIN）');
+    $('pinOldLabel').classList.toggle('hidden', mode === 'setup');
+    $('pinNewLabel').classList.toggle('hidden', mode === 'disable');
+    $('pinNew2Label').classList.toggle('hidden', mode === 'disable');
+    $('pinOld').value = ''; $('pinNew').value = ''; $('pinNew2').value = '';
+    setPinError('');
+  }
+  function submitPinForm() {
+    if (pinFormMode === 'setup') {
+      var p1 = $('pinNew').value, p2 = $('pinNew2').value;
+      if (!pinFormatOk(p1)) { setPinError('PIN 须为 4–6 位数字'); return; }
+      if (p1 !== p2) { setPinError('两次输入的 PIN 不一致'); return; }
+      settings.salt = newSalt();
+      settings.hash = pinHash(p1);
+      settings.lock = true;
+      saveSettings();
+      lockState.fails = 0; lockState.lockoutUntil = 0; saveLockState();
+      toast('App 锁已开启，下次打开 App 时需输 PIN');
+      renderSettings();
+    } else if (pinFormMode === 'change') {
+      if (!verifyPin($('pinOld').value)) { setPinError('原 PIN 不正确'); return; }
+      var n1 = $('pinNew').value, n2 = $('pinNew2').value;
+      if (!pinFormatOk(n1)) { setPinError('新 PIN 须为 4–6 位数字'); return; }
+      if (n1 !== n2) { setPinError('两次输入的新 PIN 不一致'); return; }
+      settings.salt = newSalt();
+      settings.hash = pinHash(n1);
+      saveSettings();
+      toast('PIN 已修改');
+      renderSettings();
+    } else if (pinFormMode === 'disable') {
+      if (!verifyPin($('pinOld').value)) { setPinError('PIN 不正确，无法关闭 App 锁'); return; }
+      settings.lock = false;
+      settings.salt = ''; settings.hash = ''; settings.bio = false;
+      saveSettings();
+      lockState.fails = 0; lockState.lockoutUntil = 0; saveLockState();
+      toast('App 锁已关闭');
+      renderSettings();
+    }
+  }
+  function bindLockUI() {
+    $('btnSettings').addEventListener('click', openSettings);
+    $('btnCloseSettings').addEventListener('click', closeSettings);
+    $('btnEnableLock').addEventListener('click', function () { openPinForm('setup'); });
+    $('btnChangePin').addEventListener('click', function () { openPinForm('change'); });
+    $('btnDisableLock').addEventListener('click', function () { openPinForm('disable'); });
+    $('btnPinCancel').addEventListener('click', renderSettings);
+    $('btnPinOk').addEventListener('click', submitPinForm);
+    $('bioToggle').addEventListener('change', function () {
+      if (!bioUsable()) { $('bioToggle').checked = false; return; }
+      settings.bio = $('bioToggle').checked;
+      saveSettings();
+      toast(settings.bio ? '生物识别解锁已开启（仍可随时用 PIN）' : '生物识别解锁已关闭');
+    });
+    $('lockForm').addEventListener('submit', function (e) { e.preventDefault(); tryPinUnlock(); });
+    $('btnLockBio').addEventListener('click', tryBioUnlock);
+    /* 后台切回：离开超过 30 秒重新上锁（30 秒内免验）；锁屏展示中不重复触发 */
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { hiddenAt = Date.now(); return; }
+      if (hiddenAt && settings.lock && settings.hash && booted && !isLocked && Date.now() - hiddenAt > 30000) showLock(true);
+      hiddenAt = 0;
+    });
   }
 
   /* ---------------- 数据生命周期 ---------------- */
@@ -1067,9 +1381,26 @@
 
   /* ---------------- 启动 ---------------- */
   function init() {
-    var av = $('appVersion');
-    if (av) av.textContent = 'v' + APP_VERSION;
+    loadLockSettings();
+    detectBio();
+    bindLockUI();
     bind();
+    var av = $('aboutVersion');
+    if (av) av.textContent = 'v' + APP_VERSION;
+    if (settings.lock && settings.hash) {
+      /* 开启了 App 锁：冷启动先进锁屏，主界面与族谱数据在解锁前不加载、不渲染 */
+      $('startScreen').classList.add('hidden');
+      showLock(true);
+    } else {
+      bootApp();
+    }
+    if ('serviceWorker' in navigator) {
+      try { navigator.serviceWorker.register('sw.js').catch(function () { /* 壳环境注册失败静默 */ }); }
+      catch (e) { /* 静默兜底 */ }
+    }
+  }
+  function bootApp() {
+    booted = true;
     /* 启动默认进入「查看」：有本机草稿就看草稿，没有就载入内置示例直接看树图 */
     var loaded = false, fromDraft = false;
     try {
@@ -1097,10 +1428,6 @@
     } else {
       showStart();
       syncModeUI();
-    }
-    if ('serviceWorker' in navigator) {
-      try { navigator.serviceWorker.register('sw.js').catch(function () { /* 壳环境注册失败静默 */ }); }
-      catch (e) { /* 静默兜底 */ }
     }
   }
   document.addEventListener('DOMContentLoaded', init);

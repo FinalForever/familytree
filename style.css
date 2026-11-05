@@ -22,10 +22,39 @@ code{background:#efe9da;padding:1px 5px;border-radius:4px;font-size:.85em}
 /* 顶栏 */
 #topbar{position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;background:var(--green);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.18)}
 #topbar .brand{font-weight:700;font-size:18px;margin-right:6px}
-#topbar .brand .app-version{font-size:12px;font-weight:400;color:rgba(255,255,255,.65);display:inline-block;padding:6px 5px;margin:-6px 0;text-decoration:underline;text-decoration-color:rgba(255,255,255,.35);text-underline-offset:2px;cursor:pointer}
 .mode-switch{display:flex;background:rgba(255,255,255,.14);border-radius:999px;padding:3px}
 .mode-btn{border:none;background:transparent;color:#e9e4d6;border-radius:999px;padding:5px 16px}
 .mode-btn.active{background:#fff;color:var(--green);font-weight:700}
+/* 设置齿轮钮：固定 34px 见方，与模式开关同高，不改变顶栏第一行高度 */
+#topbar .icon-btn{flex:none;width:34px;height:34px;min-height:34px;padding:0;border:none;border-radius:999px;background:rgba(255,255,255,.14);color:#fff;font-size:17px;line-height:1}
+#topbar .icon-btn:hover{background:rgba(255,255,255,.28)}
+
+/* 锁屏（App 锁）：全屏覆盖，z-index 高于顶栏与一切弹窗 */
+#lockScreen{position:fixed;inset:0;z-index:200;background:linear-gradient(160deg,var(--green-dark),var(--green));display:flex;align-items:flex-start;justify-content:center;padding:56px 16px 24px;overflow-y:auto}
+.lock-card{width:100%;max-width:340px;background:var(--card);border-radius:16px;padding:26px 22px;box-shadow:0 10px 32px rgba(0,0,0,.3);text-align:center}
+.lock-brand{font-size:24px;font-weight:700;color:var(--green)}
+.lock-tip{color:var(--muted);margin:10px 0 16px}
+.lock-card input{text-align:center;font-size:20px;letter-spacing:6px;padding:10px}
+.big-unlock{width:100%;margin-top:14px;padding:11px;font-size:16px}
+#btnLockBio{width:100%;margin-top:10px;padding:10px}
+.lock-note{color:var(--muted);font-size:12.5px;line-height:1.6;margin:16px 0 0}
+
+/* 设置弹窗 */
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.set-label{font-weight:600}
+.set-state{display:block;font-weight:400;font-size:13px;color:var(--muted);margin-top:2px}
+.set-note{color:var(--muted);font-size:13px;line-height:1.6;margin:10px 0}
+.set-note-inline{display:block;font-weight:400;font-size:12.5px;color:var(--muted)}
+.set-switch{width:22px;height:22px;flex:none;accent-color:var(--green);cursor:pointer}
+.set-switch:disabled{cursor:not-allowed;opacity:.45}
+#pinFormBlock{margin-top:12px}
+#pinFormBlock h4{margin:4px 0 8px;color:var(--green)}
+#settingsModal .modal-btns{margin-top:12px}
+.set-about{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}
+.set-about h4{margin:4px 0 6px;color:var(--green)}
+.about-name{font-weight:700;margin:4px 0}
+.about-name span{color:var(--muted);font-weight:400}
+.set-about a{color:var(--green)}
 /* 编辑工具栏（1.1.0 布局调整，用户真机反馈）：搜索框从内容区移进绿色顶栏，
    与查看工具栏同构两行——第一行操作按钮、第二行搜索框整行。
    第一行：行容器高 38、五个按钮单行不换行、按钮高 32 居中（字号/横向内边距再收一圈，

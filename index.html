@@ -18,11 +18,12 @@
 <body>
 
 <header id="topbar">
-  <div class="brand">🌳 族谱编写 <a id="appVersion" class="app-version" href="https://github.com/FinalForever/familytree" target="_blank" rel="noopener" title="打开 GitHub 仓库"></a></div>
+  <div class="brand">🌳 族谱编写</div>
   <nav class="mode-switch" aria-label="模式切换">
     <button id="btnModeView" class="mode-btn" type="button">👁 查看</button>
     <button id="btnModeEdit" class="mode-btn active" type="button">✎ 编辑</button>
   </nav>
+  <button id="btnSettings" class="icon-btn" type="button" title="设置" aria-label="设置">⚙</button>
   <!-- 编辑工具栏：位于绿色顶栏内，仅编辑状态显示（由 ui.js 的 syncModeUI 控制）；
        与查看工具栏同构两行：第一行操作按钮、第二行搜索框整行 -->
   <div id="editToolbar">
@@ -166,6 +167,78 @@
     <div class="modal-btns">
       <span class="spacer"></span>
       <button id="btnImportErrorOk" type="button" class="primary">知道了</button>
+    </div>
+  </div>
+</div>
+
+<!-- App 锁锁屏：开启 App 锁后冷启动先于主界面显示；后台切回超时也以此层覆盖全屏 -->
+<section id="lockScreen" class="hidden">
+  <div class="lock-card">
+    <div class="lock-brand">🌳 族谱编写</div>
+    <p class="lock-tip" id="lockTip">请输入 PIN 解锁</p>
+    <form id="lockForm">
+      <input id="lockPin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="PIN（4–6 位数字）" aria-label="PIN">
+      <p id="lockError" class="form-error hidden"></p>
+      <button id="btnUnlock" type="submit" class="primary big-unlock">解锁</button>
+    </form>
+    <button id="btnLockBio" type="button" class="hidden">🔐 使用生物识别 / Windows Hello 解锁</button>
+    <p class="lock-note">App 锁只是进入门禁，不加密本机数据。<br>忘记 PIN 只能清除应用数据或重装 App 后重新导入数据。</p>
+  </div>
+</section>
+
+<!-- 设置弹窗：App 锁（PIN + 可选生物识别）与关于软件 -->
+<div id="settingsModal" class="modal-mask hidden">
+  <div class="modal">
+    <h3>设置</h3>
+
+    <div class="set-row">
+      <div class="set-label">App 锁<strong id="lockStateText" class="set-state">未开启</strong></div>
+    </div>
+    <!-- 未开启：设置 PIN 并开启 -->
+    <div id="lockOffBlock">
+      <p class="set-note">开启后，每次打开 App 需要输入 PIN（设备支持时可用指纹 / 面容 / Windows Hello）才能进入。</p>
+      <div class="modal-btns">
+        <button id="btnEnableLock" type="button" class="primary">设置 PIN 并开启</button>
+      </div>
+    </div>
+    <!-- PIN 表单区（mode: setup / change / verify-disable，标题随模式变） -->
+    <div id="pinFormBlock" class="hidden">
+      <h4 id="pinFormTitle">设置 PIN</h4>
+      <label id="pinOldLabel" class="hidden">原 PIN<input id="pinOld" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="输入原 PIN"></label>
+      <label id="pinNewLabel">新 PIN（4–6 位数字）<input id="pinNew" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="输入新 PIN"></label>
+      <label id="pinNew2Label">再输一次<input id="pinNew2" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="再次输入新 PIN"></label>
+      <p id="pinFormError" class="form-error hidden"></p>
+      <div class="modal-btns">
+        <span class="spacer"></span>
+        <button id="btnPinCancel" type="button">取消</button>
+        <button id="btnPinOk" type="button" class="primary">确定</button>
+      </div>
+    </div>
+    <!-- 已开启：修改 / 关闭 -->
+    <div id="lockOnBlock" class="hidden">
+      <div class="modal-btns">
+        <button id="btnChangePin" type="button">修改 PIN</button>
+        <span class="spacer"></span>
+        <button id="btnDisableLock" type="button" class="danger">关闭 App 锁</button>
+      </div>
+    </div>
+    <!-- 生物识别行：仅当当前平台/设备可用时由 ui.js 显示 -->
+    <div id="bioRow" class="set-row hidden">
+      <div class="set-label" id="bioLabel">生物识别解锁<span class="set-note-inline" id="bioSub">指纹 / 面容</span></div>
+      <input id="bioToggle" type="checkbox" class="set-switch" aria-label="生物识别解锁">
+    </div>
+    <p class="set-note">App 锁是进入门禁，不加密本机存储的数据。忘记 PIN 将无法进入，请牢记；忘记后只能清除应用数据或重装 App，再重新导入族谱数据。</p>
+
+    <div class="set-about">
+      <h4>关于软件</h4>
+      <p class="about-name">族谱编写 <span id="aboutVersion"></span></p>
+      <p class="set-note">离线编写族谱数据的工具：导出的 family-data.json 可直接用于族谱网站，网站现有数据也可导入继续编写。完全离线，不联网、不上传。</p>
+      <p><a id="aboutRepo" href="https://github.com/FinalForever/familytree" target="_blank" rel="noopener">GitHub 仓库</a></p>
+    </div>
+
+    <div class="modal-btns">
+      <span class="spacer"></span>
+      <button id="btnCloseSettings" type="button" class="primary">完成</button>
     </div>
   </div>
 </div>

@@ -1,6 +1,6 @@
 /* 族谱编写 Service Worker：预缓存全部本地资源，离线可用。
  * 在 Electron / Android WebView 的 file:// 环境下不会被注册（页面侧已做静默兜底）。 */
-var CACHE_NAME = 'ft-editor-v1';
+var CACHE_NAME = 'ft-editor-v2'; /* 1.2.0：随发版升缓存名，老访客不先看到旧版缓存 */
 var ASSETS = [
   './',
   './index.html',
