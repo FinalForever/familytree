@@ -233,6 +233,7 @@ export default function HomeClient({ initialData, serverAuthed = false, registra
             familyData={filteredFamilyData} 
             searchTerm={searchTerm}
             searchInInfo={searchFilters.searchInInfo}
+            searchActive={searchResults.length > 0}
           />
         ) : (
           <TreeView

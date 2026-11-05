@@ -9,7 +9,12 @@ interface FamilyTreeProps {
     familyData: FamilyData;
     searchTerm?: string;
     searchInInfo?: boolean;
+    // 搜索激活（有命中结果）时，列表里出现的世代都含命中成员，一律展开
+    searchActive?: boolean;
 }
+
+// 折叠状态按世代标题存一份模块级缓存：列表视图切走再切回（组件重挂）不丢失，会话内保持
+const collapsedGenCache = new Set<string>();
 
 // 创建一个映射，用于快速查找人物
 const createPersonMap = (data: FamilyData) => {
@@ -175,7 +180,9 @@ const Generation = ({
     sonsMap,
     scrollToPerson,
     searchTerm,
-    searchInInfo
+    searchInInfo,
+    collapsed,
+    onToggle
 }: { 
     title: string; 
     people: Person[]; 
@@ -184,50 +191,96 @@ const Generation = ({
     scrollToPerson: (personId: string) => void;
     searchTerm?: string;
     searchInInfo?: boolean;
+    collapsed: boolean;
+    onToggle: () => void;
 }) => {
     return (
         <div className="mb-10">
-            <div className="flex items-center gap-4 mb-6">
-                <h2 className="text-xl font-bold text-gray-800">
+            <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={!collapsed}
+                className="w-full flex items-center gap-4 mb-6 group cursor-pointer text-left"
+            >
+                <span className="text-xl font-bold text-gray-800 group-hover:text-blue-600 transition-colors duration-300">
                     {title}
-                </h2>
-                <div className="flex-1 h-px bg-gradient-to-r from-blue-50 to-transparent"></div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {people.map((person, index) => (
-                    <PersonCard 
-                        key={index} 
-                        person={person} 
-                        personMap={personMap}
-                        sonsMap={sonsMap}
-                        scrollToPerson={scrollToPerson}
-                        searchTerm={searchTerm}
-                        searchInInfo={searchInInfo}
-                    />
-                ))}
-            </div>
+                </span>
+                <span className="text-sm text-gray-400 whitespace-nowrap">
+                    共 {people.length} 人
+                </span>
+                <span className="flex-1 h-px bg-gradient-to-r from-blue-50 to-transparent"></span>
+                <span className="text-gray-400 group-hover:text-blue-500 transition-colors duration-300">
+                    {collapsed ? 
+                        <ChevronDownIcon className="h-5 w-5" /> : 
+                        <ChevronUpIcon className="h-5 w-5" />
+                    }
+                </span>
+            </button>
+            {!collapsed && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {people.map((person, index) => (
+                        <PersonCard 
+                            key={index} 
+                            person={person} 
+                            personMap={personMap}
+                            sonsMap={sonsMap}
+                            scrollToPerson={scrollToPerson}
+                            searchTerm={searchTerm}
+                            searchInInfo={searchInInfo}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     );
 };
 
-export default function FamilyTree({ familyData, searchTerm, searchInInfo }: FamilyTreeProps) {
+export default function FamilyTree({ familyData, searchTerm, searchInInfo, searchActive }: FamilyTreeProps) {
     const [personMap, setPersonMap] = useState<Map<string, Person>>(new Map());
     const [sonsMap, setSonsMap] = useState<Map<string, Person[]>>(new Map());
+    const [collapsedGens, setCollapsedGens] = useState<Set<string>>(() => new Set(collapsedGenCache));
     
     useEffect(() => {
         setPersonMap(createPersonMap(familyData));
         setSonsMap(createSonsMap(familyData));
     }, [familyData]);
+
+    const toggleGeneration = (title: string) => {
+        setCollapsedGens(prev => {
+            const next = new Set(prev);
+            if (next.has(title)) {
+                next.delete(title);
+                collapsedGenCache.delete(title);
+            } else {
+                next.add(title);
+                collapsedGenCache.add(title);
+            }
+            return next;
+        });
+    };
+
+    // 搜索激活时命中世代强制展开，其余时候看折叠状态
+    const isGenerationCollapsed = (title: string) => !searchActive && collapsedGens.has(title);
     
     const scrollToPerson = (personId: string) => {
-        const element = document.getElementById(`person-${personId}`);
-        if (element) {
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            // 添加一个临时高亮效果
-            element.classList.add('ring-2', 'ring-blue-500');
-            setTimeout(() => {
-                element.classList.remove('ring-2', 'ring-blue-500');
-            }, 2000);
+        const doScroll = () => {
+            const element = document.getElementById(`person-${personId}`);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // 添加一个临时高亮效果
+                element.classList.add('ring-2', 'ring-blue-500');
+                setTimeout(() => {
+                    element.classList.remove('ring-2', 'ring-blue-500');
+                }, 2000);
+            }
+        };
+        // 目标人物所在世代被折叠时先展开，等渲染完成再滚动定位
+        const targetGen = familyData.generations.find(g => g.people.some(p => p.id === personId));
+        if (targetGen && isGenerationCollapsed(targetGen.title)) {
+            toggleGeneration(targetGen.title);
+            setTimeout(doScroll, 100);
+        } else {
+            doScroll();
         }
     };
     
@@ -243,6 +296,8 @@ export default function FamilyTree({ familyData, searchTerm, searchInInfo }: Fam
                     scrollToPerson={scrollToPerson}
                     searchTerm={searchTerm}
                     searchInInfo={searchInInfo}
+                    collapsed={isGenerationCollapsed(generation.title)}
+                    onToggle={() => toggleGeneration(generation.title)}
                 />
             ))}
         </div>
