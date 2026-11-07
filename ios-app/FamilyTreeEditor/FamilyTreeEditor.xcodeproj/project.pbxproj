@@ -1,0 +1,240 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00000000000000000000001E /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000014 /* AppDelegate.swift */; };
+		00000000000000000000001F /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000015 /* ViewController.swift */; };
+		000000000000000000000020 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001A /* WebKit.framework */; };
+		000000000000000000000021 /* LocalAuthentication.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001B /* LocalAuthentication.framework */; };
+		000000000000000000000022 /* BridgeShim.js in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000016 /* BridgeShim.js */; };
+		000000000000000000000023 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000018 /* Assets.xcassets */; };
+		000000000000000000000024 /* WebApp in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000019 /* WebApp */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000014 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		000000000000000000000015 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		000000000000000000000016 /* BridgeShim.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = BridgeShim.js; sourceTree = "<group>"; };
+		000000000000000000000017 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		000000000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		000000000000000000000019 /* WebApp */ = {isa = PBXFileReference; lastKnownFileType = folder; path = WebApp; sourceTree = "<group>"; };
+		00000000000000000000001A /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		00000000000000000000001B /* LocalAuthentication.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = LocalAuthentication.framework; path = System/Library/Frameworks/LocalAuthentication.framework; sourceTree = SDKROOT; };
+		000000000000000000000005 /* FamilyTreeEditor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FamilyTreeEditor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000020 /* WebKit.framework in Frameworks */,
+				000000000000000000000021 /* LocalAuthentication.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		000000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000003 /* FamilyTreeEditor */,
+				000000000000000000000004 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000003 /* FamilyTreeEditor */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000014 /* AppDelegate.swift */,
+				000000000000000000000015 /* ViewController.swift */,
+				000000000000000000000016 /* BridgeShim.js */,
+				000000000000000000000018 /* Assets.xcassets */,
+				000000000000000000000019 /* WebApp */,
+				000000000000000000000017 /* Info.plist */,
+			);
+			path = FamilyTreeEditor;
+			sourceTree = "<group>";
+		};
+		000000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000005 /* FamilyTreeEditor.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		000000000000000000000006 /* FamilyTreeEditor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 00000000000000000000000D /* Build configuration list for PBXNativeTarget "FamilyTreeEditor" */;
+			buildPhases = (
+				000000000000000000000007 /* Sources */,
+				000000000000000000000008 /* Frameworks */,
+				000000000000000000000009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FamilyTreeEditor;
+			productName = FamilyTreeEditor;
+			productReference = 000000000000000000000005 /* FamilyTreeEditor.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		000000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1430;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					000000000000000000000006 = {
+						CreatedOnToolsVersion = 14.3;
+					};
+				};
+			};
+			buildConfigurationList = 00000000000000000000000A /* Build configuration list for PBXProject "FamilyTreeEditor" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = 000000000000000000000002;
+			productRefGroup = 000000000000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				000000000000000000000006 /* FamilyTreeEditor */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000023 /* Assets.xcassets in Resources */,
+				000000000000000000000024 /* WebApp in Resources */,
+				000000000000000000000022 /* BridgeShim.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00000000000000000000001E /* AppDelegate.swift in Sources */,
+				00000000000000000000001F /* ViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		00000000000000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		00000000000000000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				SWIFT_VERSION = 5.0;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		00000000000000000000000E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FamilyTreeEditor/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.familytree.editor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		00000000000000000000000F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FamilyTreeEditor/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.familytree.editor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		00000000000000000000000A /* Build configuration list for PBXProject "FamilyTreeEditor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00000000000000000000000B /* Debug */,
+				00000000000000000000000C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		00000000000000000000000D /* Build configuration list for PBXNativeTarget "FamilyTreeEditor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00000000000000000000000E /* Debug */,
+				00000000000000000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 000000000000000000000001 /* Project object */;
+}
