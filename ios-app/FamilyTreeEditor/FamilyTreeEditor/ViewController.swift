@@ -10,10 +10,14 @@ final class ViewController: UIViewController, WKScriptMessageHandler, WKNavigati
 
     private var webView: WKWebView!
 
+    // 顶部安全区垫的是与网页顶栏同色的绿带，状态栏文字/图标用白色
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        // 与网页 theme-color #1a5436 一致的底色，避免加载瞬间白屏刺眼
-        view.backgroundColor = UIColor(red: 0.10, green: 0.33, blue: 0.21, alpha: 1.0)
+        // 底色与网页纸面 #f7f4ec 一致：WebView 只占安全区（见下方约束），
+        // 底部小横条区露出这层纸色，与页面背景连成一片
+        view.backgroundColor = UIColor(red: 0.97, green: 0.96, blue: 0.93, alpha: 1.0)
 
         // 1) 页面加载前先算好生物识别状态：垫片的 biometricStatus() 是同步读，
         //    必须赶在内核 ui.js 的 detectBio() 之前备好，故以 WKUserScript 在文档开始处注入常量。
@@ -36,10 +40,21 @@ final class ViewController: UIViewController, WKScriptMessageHandler, WKNavigati
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.translatesAutoresizingMaskIntoConstraints = false
+
+        // 安全区适配：WebView 只占安全区，避免网页顶栏被状态栏/灵动岛压住；
+        // 顶部安全区另垫一条与网页顶栏同色（#1a5436）的绿带，状态栏浮在绿带上观感连续。
+        let topStrip = UIView()
+        topStrip.backgroundColor = UIColor(red: 0.10, green: 0.33, blue: 0.21, alpha: 1.0)
+        topStrip.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(topStrip)
         view.addSubview(webView)
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: view.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            topStrip.topAnchor.constraint(equalTo: view.topAnchor),
+            topStrip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topStrip.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topStrip.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
