@@ -322,6 +322,15 @@ export async function readJsonBody(request: Request, limit = 16384): Promise<Jso
   // 不带 Origin 的非浏览器客户端放行（其请求不靠 Cookie 维持会话的跨站语境）。
   const origin = request.headers.get('origin');
   if (origin) {
+    // 配置了 APP_ORIGIN 时以它为准（精确匹配）：某些隧道/边缘代理会把到达应用的
+    // Host 改写成内部名，此时任何由请求头推导的 origin 都对不上浏览器地址栏，
+    // 只能由部署方把对外 origin 写死。未配置时走下面的候选集推导。
+    const configured = process.env.APP_ORIGIN?.trim().replace(/\/+$/, '');
+    if (configured) {
+      if (origin !== configured) {
+        return { ok: false, status: 403, message: '请求来源不被允许' };
+      }
+    } else {
     // 本站 origin 的候选集（任一命中即放行）：直连时是 request.url 的 origin；
     // 经反代/隧道时 request.url 是内网地址，浏览器地址栏的 origin 要靠代理覆写的
     // X-Forwarded-Host/Proto 还原——浏览器脚本无法伪造这两个头，跨站请求带不过来。
@@ -346,6 +355,7 @@ export async function readJsonBody(request: Request, limit = 16384): Promise<Jso
     try { originHost = new URL(origin).host; } catch { /* 保持空串，不会命中 */ }
     if (!candidates.has(origin) && !(originHost && hosts.has(originHost))) {
       return { ok: false, status: 403, message: '请求来源不被允许' };
+    }
     }
   }
   // Content-Type 若存在必须是 application/json（允许 ;charset 等参数），挡掉 text/plain 等

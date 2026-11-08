@@ -124,6 +124,7 @@ docker compose ps           # 状态显示 healthy 就是启动完成
 | `REGISTRATION_OPEN` | 否 | 注册开关：默认关闭（未明确开启即关闭）；设为 `false` 时强制关闭（压过后台设置），想开放就在后台打开开关 |
 | `REQUIRE_AUTH` | 否 | 是否必须登录才能查看，保持 `true` 即可，改成 `false` 等于公开族谱 |
 | `TRUSTED_IP_HEADER` | 否 | 唯一可信的来源 IP 头（小写头名）；仅在反代确实会覆写/净化该头时才设，乱设会让限流键可被伪造，不确定就不填 |
+| `APP_ORIGIN` | 否 | 对外访问的完整 origin（如 `https://zp.example.com`）；仅当部署在会改写 Host 的隧道/边缘代理后时才设，写接口的 Origin 校验以它为准，直连部署不填 |
 
 数据与账号：
 
@@ -344,6 +345,7 @@ Main environment variables (`.env`; every entry is commented in detail in the ex
 | `REGISTRATION_OPEN` | No | Registration switch: off by default (closed unless explicitly enabled); `false` force-closes it (overrides the admin-backend setting) — to open registration, use the backend switch |
 | `REQUIRE_AUTH` | No | Whether sign-in is required to view the tree; keep `true` — `false` makes the genealogy public |
 | `TRUSTED_IP_HEADER` | No | The single trusted source-IP header (lowercase header name); set only when your reverse proxy actually overwrites/sanitizes that header — a wrong value lets clients spoof the rate-limit key. Leave unset if unsure |
+| `APP_ORIGIN` | No | The public origin (e.g. `https://zp.example.com`); set only when deployed behind a tunnel/edge proxy that rewrites the Host header — write-endpoint Origin checks are matched against it. Leave unset for direct deployments |
 
 Data and accounts:
 
