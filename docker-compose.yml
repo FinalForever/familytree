@@ -1,7 +1,9 @@
 services:
   familytree:
     # 直接拉取 GitHub 预构建镜像，无需本地打包（amd64 / arm64 均可）
-    image: ghcr.io/finalforever/familytree:latest
+    # 钉到具体提交的镜像（不用浮动的 latest，避免上游更新悄悄改变生产行为）；
+    # 想升级就把 sha 换成新提交的前 7 位，镜像标签与提交一一对应。
+    image: ghcr.io/finalforever/familytree:sha-bf06e5a
     # 如改了源码想自行构建：删掉上面一行，取消下面四行注释，并把 up 命令换成 docker compose up -d --build
     # build:
     #   context: .
