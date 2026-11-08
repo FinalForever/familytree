@@ -118,7 +118,19 @@ export function validateFamilyData(data: unknown): data is FamilyData {
 
 export async function getFamilyDataOnServer(): Promise<FamilyData> {
   // 不缓存：数据文件修改后下一次请求即生效
-  const data = await loadConfigOnServer<FamilyData>('family-data.json', defaultFamilyData);
+  let data = await loadConfigOnServer<FamilyData>('family-data.json', defaultFamilyData);
+  // 首启兜底：真实数据文件已被 git 忽略、新克隆里可能不存在，此时改读随仓库附带的示例文件，
+  // 让新部署打开就能看到示例族谱，而不是一片空白；示例也没有时才回退空数据。
+  // 校验未通过同理回退示例（示例随仓库发布、结构可信），校验逻辑不变。
+  if (!validateFamilyData(data) || (data.generations?.length ?? 0) === 0) {
+    const example = await loadConfigOnServer<FamilyData>('family-data.example.json', defaultFamilyData);
+    if (validateFamilyData(example) && (example.generations?.length ?? 0) > 0) {
+      if (!validateFamilyData(data)) {
+        console.error('family-data.json 结构校验未通过（类型不对/id 重复/父子成环），已临时回退为示例数据，请检查数据文件');
+      }
+      data = example;
+    }
+  }
   if (!validateFamilyData(data)) {
     console.error('family-data.json 结构校验未通过（类型不对/id 重复/父子成环），已回退为空数据，请检查数据文件');
     return defaultFamilyData;

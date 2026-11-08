@@ -11,7 +11,7 @@
 - 多代族谱可视化展示（世系树图 + 世代列表）：树图可缩放、拖动平移，支系可折叠展开，每行有世代标尺，搜索时自动展开命中者的祖先链；成员关系链接与个人信息详情
 - 按姓名、简介等信息搜索，匹配高亮
 - 账号 + 密码登录后才能查看，未登录时不下发任何族谱数据
-- 开放注册（管理员可在后台随时关闭）
+- 前台注册默认关闭（管理员可在后台随时开启或关闭）
 - 管理后台 `/admin`：指定账号密码新建账号、重置密码、删除账号、开关注册、修改家族姓氏
 - 家族姓氏为运行时设置：后台保存后标题、登录页、页眉页脚即时生效，无需重新构建
 
@@ -87,8 +87,8 @@ docker compose ps           # 状态显示 healthy 就是启动完成
 
 1. 打开 `http://localhost:3000/admin`，用刚填的 `ADMIN_PASSWORD` 登录后台
 2. 把家族姓氏改成你家的（保存后即时生效）
-3. 决定注册开关：想让家人自己注册账号就保持开放；想只由你发账号就在后台关掉注册
-4. 换上自己的族谱数据：把你的 `family-data.json` 放到 `config/` 目录覆盖自带的示例数据（格式见下一节），改完即时生效、不用重启
+3. 决定注册开关：注册默认是关的、只能由你发账号；想让家人自己注册账号就去后台打开注册开关
+4. 换上自己的族谱数据：先把 `config/family-data.example.json` 复制一份、改名为 `config/family-data.json`，再把内容换成你自己的族谱数据（格式见下一节）；`family-data.json` 已被 git 忽略、不会被提交到仓库，改完即时生效、不用重启
 
 ### 怎么从别的设备访问
 
@@ -121,8 +121,9 @@ docker compose ps           # 状态显示 healthy 就是启动完成
 | --- | --- | --- |
 | `AUTH_SECRET` | 是 | 会话令牌签名密钥，至少 16 位的随机长字符串（`openssl rand -hex 32` 生成） |
 | `ADMIN_PASSWORD` | 是 | 管理后台 `/admin` 的管理员口令，不填则后台无法登录 |
-| `REGISTRATION_OPEN` | 否 | 注册开关：设为 `false` 时强制关闭注册（压过后台设置）；其他情况后台设置优先 |
+| `REGISTRATION_OPEN` | 否 | 注册开关：默认关闭（未明确开启即关闭）；设为 `false` 时强制关闭（压过后台设置），想开放就在后台打开开关 |
 | `REQUIRE_AUTH` | 否 | 是否必须登录才能查看，保持 `true` 即可，改成 `false` 等于公开族谱 |
+| `TRUSTED_IP_HEADER` | 否 | 唯一可信的来源 IP 头（小写头名）；仅在反代确实会覆写/净化该头时才设，乱设会让限流键可被伪造，不确定就不填 |
 
 数据与账号：
 
@@ -230,7 +231,7 @@ A family tree visualization website built with [Next.js](https://nextjs.org). Th
 - Multi-generation family tree visualization (interactive tree graph + generation lists): zoomable, drag to pan, collapsible branches, a generation ruler on every row, and search auto-expands the match's ancestor chain; with relationship links and member details
 - Search across names and biographies with match highlighting
 - Account + password sign-in required; no genealogy data is sent to anonymous visitors
-- Optional open registration (the admin can turn it off at any time)
+- Public registration is off by default (the admin can turn it on or off at any time)
 - Admin backend at `/admin`: create accounts with chosen credentials, reset passwords, delete accounts, toggle registration, change the family surname
 - The family surname is a runtime setting: saving it in the admin backend updates the title, sign-in page, header and footer immediately, with no rebuild
 
@@ -306,8 +307,8 @@ Open `http://localhost:3000` in a browser; the sign-in page means you are up.
 
 1. Open `http://localhost:3000/admin` and sign in with the `ADMIN_PASSWORD` you just set
 2. Change the family surname to yours (takes effect immediately)
-3. Decide on registration: leave it open so family members can register themselves, or turn it off in the backend and issue accounts yourself
-4. Replace the sample data: put your own `family-data.json` into the `config/` folder (format described below); changes take effect immediately, no restart needed
+3. Decide on registration: it is off by default, so you issue accounts yourself; turn it on in the backend if you want family members to register themselves
+4. Replace the sample data: copy `config/family-data.example.json` to `config/family-data.json` and replace its contents with your own genealogy data (format described below). `family-data.json` is git-ignored and will not be committed; changes take effect immediately, no restart needed
 
 ### Reaching it from other devices
 
@@ -340,8 +341,9 @@ Main environment variables (`.env`; every entry is commented in detail in the ex
 | --- | --- | --- |
 | `AUTH_SECRET` | Yes | Signing key for session tokens, a random string of at least 16 characters (generate with `openssl rand -hex 32`) |
 | `ADMIN_PASSWORD` | Yes | Password for the admin backend at `/admin`; without it the backend cannot be signed into |
-| `REGISTRATION_OPEN` | No | Registration switch: `false` force-closes registration (overrides the admin-backend setting); otherwise the backend setting takes precedence |
+| `REGISTRATION_OPEN` | No | Registration switch: off by default (closed unless explicitly enabled); `false` force-closes it (overrides the admin-backend setting) — to open registration, use the backend switch |
 | `REQUIRE_AUTH` | No | Whether sign-in is required to view the tree; keep `true` — `false` makes the genealogy public |
+| `TRUSTED_IP_HEADER` | No | The single trusted source-IP header (lowercase header name); set only when your reverse proxy actually overwrites/sanitizes that header — a wrong value lets clients spoof the rate-limit key. Leave unset if unsure |
 
 Data and accounts:
 

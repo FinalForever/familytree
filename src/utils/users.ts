@@ -196,11 +196,13 @@ export async function verifyUserPassword(username: string, password: string): Pr
 
 export function isRegistrationOpen(): boolean {
   // 环境变量明确设为 false 时强制关闭、压过后台设置——部署方收口的开关不能被面板翻开；
-  // 其余情况后台设置优先（即时生效），再未设置时默认开放
+  // 其余情况后台设置优先（即时生效）；后台也未明确设置时默认关闭——「未明确开启即关闭」，
+  // 避免全新部署或设置文件损坏时注册被意外敞开（此前默认开放属 fail-open）。
+  // 想开放注册：在管理后台打开开关，或把环境变量 REGISTRATION_OPEN 设为 true 并在后台开启。
   if (process.env.REGISTRATION_OPEN === 'false') return false;
   const settings = loadSettings();
   if (typeof settings.registrationOpen === 'boolean') return settings.registrationOpen;
-  return true;
+  return false;
 }
 
 export function setRegistrationOpen(open: boolean): void {

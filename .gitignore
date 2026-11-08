@@ -44,3 +44,6 @@ yarn-error.log*
 next-env.d.ts
 
 # 保留示例配置文件
+
+# 真实族谱数据，绝不提交（示例见 config/family-data.example.json）
+config/family-data.json

@@ -1,0 +1,17 @@
+# Dependabot：每周一检查依赖更新，自动开 PR（合并与否由维护者决定，不自动合并）
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "依赖更新"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "依赖更新"

@@ -8,12 +8,24 @@ const MAX_REQ = 60;
 const hits = new Map<string, number[]>();
 
 export function middleware(request: NextRequest) {
-  // 与 utils/auth.ts 的 clientKey 同规则：优先 CF-Connecting-IP，否则取 XFF 最后一跳；
-  // XFF 第一项是访客可控的，不能用作限流键
-  const ip =
-    request.headers.get('cf-connecting-ip')?.trim() ||
-    request.headers.get('x-forwarded-for')?.split(',').map((s) => s.trim()).filter(Boolean).pop() ||
-    'local';
+  // 与 utils/auth.ts 的 clientKey 同规则（两处必须同步）：
+  // 若设了 TRUSTED_IP_HEADER 就只认该头（x-forwarded-for 取最后一跳，其余取原值，缺失回退 'local')；
+  // 未设时优先 CF-Connecting-IP，否则取 XFF 最后一跳——XFF 第一项是访客可控的，不能用作限流键。
+  const trusted = process.env.TRUSTED_IP_HEADER?.trim().toLowerCase();
+  let ip = 'local';
+  if (trusted) {
+    const v = request.headers.get(trusted)?.trim();
+    if (v) {
+      ip = trusted === 'x-forwarded-for'
+        ? (v.split(',').map((s) => s.trim()).filter(Boolean).pop() || 'local')
+        : v;
+    }
+  } else {
+    ip =
+      request.headers.get('cf-connecting-ip')?.trim() ||
+      request.headers.get('x-forwarded-for')?.split(',').map((s) => s.trim()).filter(Boolean).pop() ||
+      'local';
+  }
   const now = Date.now();
   const list = (hits.get(ip) || []).filter((t) => now - t < WINDOW_MS);
   list.push(now);

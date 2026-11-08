@@ -270,6 +270,23 @@ export function recordLoginAttempt(key: string): void {
 }
 
 export function clientKey(request: Request): string {
+  // 部署方可用 TRUSTED_IP_HEADER 指定唯一可信的来源 IP 头（小写头名，如 cf-connecting-ip /
+  // x-forwarded-for）：设了就只认该头——仅在反代确实会覆写/净化该头时才该设，乱设等于把
+  // 限流键交给访客伪造。指定头缺失时回退 'local'，不回退到其他可伪造的头。
+  // 与 src/middleware.ts 的限流键规则保持一致，改一处必须同步另一处。
+  const trusted = process.env.TRUSTED_IP_HEADER?.trim().toLowerCase();
+  if (trusted) {
+    const v = request.headers.get(trusted);
+    if (v && v.trim()) {
+      if (trusted === 'x-forwarded-for') {
+        const parts = v.split(',').map((s) => s.trim()).filter(Boolean);
+        if (parts.length) return parts[parts.length - 1];
+      } else {
+        return v.trim();
+      }
+    }
+    return 'local';
+  }
   // 来源标识只取可信代理给出的值：Cloudflare 的 CF-Connecting-IP 由 CF 边缘写入、访客无法伪造；
   // 没有时退回 X-Forwarded-For 的最后一跳（离应用最近的可信代理追加的那一项）。
   // 绝不能取 XFF 第一项——那是访客自己可控的内容，用它做限流键等于没有限流。
@@ -300,6 +317,23 @@ export type JsonBodyResult =
   | { ok: false; status: number; message: string };
 
 export async function readJsonBody(request: Request, limit = 16384): Promise<JsonBodyResult> {
+  // 写接口的同源校验（CSRF 纵深防御，不单靠 Cookie 的 SameSite=Lax）：
+  // 请求带 Origin 头时，必须与本站 origin 一致，否则 403——跨站表单/脚本冒名提交会被挡下；
+  // 不带 Origin 的非浏览器客户端放行（其请求不靠 Cookie 维持会话的跨站语境）。
+  const origin = request.headers.get('origin');
+  if (origin) {
+    let expected = '';
+    try { expected = new URL(request.url).origin; } catch { /* 解析不出则按不一致处理 */ }
+    if (!expected || origin !== expected) {
+      return { ok: false, status: 403, message: '请求来源不被允许' };
+    }
+  }
+  // Content-Type 若存在必须是 application/json（允许 ;charset 等参数），挡掉 text/plain 等
+  // 「简单请求」绕过预检的提交方式。
+  const contentType = request.headers.get('content-type');
+  if (contentType && contentType.split(';')[0].trim().toLowerCase() !== 'application/json') {
+    return { ok: false, status: 415, message: '请求须为 application/json' };
+  }
   if (requestBodyTooLarge(request, limit)) {
     return { ok: false, status: 413, message: '请求体过大' };
   }
