@@ -43,7 +43,7 @@ jobs:
           unzip -l dist/FamilyTreeEditor-unsigned.ipa | head -20
 
       - name: 保留构建产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: FamilyTreeEditor-unsigned-ipa
           path: dist/FamilyTreeEditor-unsigned.ipa
