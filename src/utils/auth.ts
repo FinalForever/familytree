@@ -322,9 +322,29 @@ export async function readJsonBody(request: Request, limit = 16384): Promise<Jso
   // 不带 Origin 的非浏览器客户端放行（其请求不靠 Cookie 维持会话的跨站语境）。
   const origin = request.headers.get('origin');
   if (origin) {
-    let expected = '';
-    try { expected = new URL(request.url).origin; } catch { /* 解析不出则按不一致处理 */ }
-    if (!expected || origin !== expected) {
+    // 本站 origin 的候选集（任一命中即放行）：直连时是 request.url 的 origin；
+    // 经反代/隧道时 request.url 是内网地址，浏览器地址栏的 origin 要靠代理覆写的
+    // X-Forwarded-Host/Proto 还原——浏览器脚本无法伪造这两个头，跨站请求带不过来。
+    // 另加主机名兜底：Origin 的 host 与 Host/X-Forwarded-Host 任一相等也放行，
+    // 防代理少传协议头时误伤自家请求（校验目标是「来自本站页面」，主机名是其实质）。
+    const candidates = new Set<string>();
+    const hosts = new Set<string>();
+    try {
+      const u = new URL(request.url);
+      candidates.add(u.origin);
+      hosts.add(u.host);
+    } catch { /* 解析不出就只剩代理头候选 */ }
+    const fwdHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+    const reqHost = request.headers.get('host')?.trim();
+    if (reqHost) hosts.add(reqHost);
+    if (fwdHost) {
+      hosts.add(fwdHost);
+      const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'https';
+      candidates.add(`${proto}://${fwdHost}`);
+    }
+    let originHost = '';
+    try { originHost = new URL(origin).host; } catch { /* 保持空串，不会命中 */ }
+    if (!candidates.has(origin) && !(originHost && hosts.has(originHost))) {
       return { ok: false, status: 403, message: '请求来源不被允许' };
     }
   }
