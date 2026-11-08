@@ -54,7 +54,7 @@ npm run dev
 
 ## Docker 部署（推荐方式）
 
-镜像已由 GitHub Actions 预构建并发布在 GHCR，部署时自动拉取，不需要在你的机器上编译代码；amd64 与 arm64 均支持。整个过程就三步：
+镜像已由 GitHub Actions 预构建并发布在 GHCR，部署时自动拉取，不需要在你的机器上编译代码；amd64 与 arm64 均支持。compose 默认钉住某个提交的镜像（`sha-xxxxxxx` 标签，不用浮动的 latest），想升级时把标签换成新提交的前 7 位即可。整个过程就三步：
 
 ### 第一步：准备
 
@@ -101,7 +101,7 @@ docker compose ps           # 状态显示 healthy 就是启动完成
 
 - 看日志：`docker compose logs -f`
 - 重启：`docker compose restart`（改了 `.env` 或 compose 后用 `docker compose up -d` 让新配置生效）
-- 更新到最新版：`docker compose pull && docker compose up -d`——账号和族谱数据都在 `config/`、`data/` 目录里，不会随更新丢失
+- 更新到最新版：先把 `docker-compose.yml` 里的镜像标签换成新提交的 `sha-xxxxxxx`，再 `docker compose pull && docker compose up -d`——账号和族谱数据都在 `config/`、`data/` 目录里，不会随更新丢失
 - 备份：把 `config/` 和 `data/` 两个目录打包带走即可；恢复时放回原位重启
 - 停止：`docker compose down`（只停容器，数据保留在目录里）
 
@@ -275,7 +275,7 @@ npm run dev
 
 ## Docker deployment (recommended)
 
-The image is prebuilt by GitHub Actions and published to GHCR (`ghcr.io/finalforever/familytree:latest`); deployment pulls it automatically — nothing to compile on your machine. Both amd64 and arm64 are supported. Three steps:
+The image is prebuilt by GitHub Actions and published to GHCR; deployment pulls it automatically — nothing to compile on your machine. Both amd64 and arm64 are supported. The compose file pins the image to a specific commit (`sha-xxxxxxx` tag, not the floating `latest`); to upgrade, change the tag to the first 7 characters of the newer commit. Three steps:
 
 ### 1. Prerequisites
 
@@ -322,7 +322,7 @@ By default the site only listens on `127.0.0.1:3000` of the host — a safe defa
 
 - Logs: `docker compose logs -f`
 - Restart: `docker compose restart` (after editing `.env` or the compose file, run `docker compose up -d` so the new values apply)
-- Update to the latest version: `docker compose pull && docker compose up -d` — accounts and genealogy data live in the `config/` and `data/` folders and survive updates
+- Update to the latest version: change the image tag in `docker-compose.yml` to the newer commit's `sha-xxxxxxx`, then `docker compose pull && docker compose up -d` — accounts and genealogy data live in the `config/` and `data/` folders and survive updates
 - Backup: archive the `config/` and `data/` folders; restore by putting them back and restarting
 - Stop: `docker compose down` (containers stop; data stays in the folders)
 
